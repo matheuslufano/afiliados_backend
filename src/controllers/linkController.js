@@ -1,17 +1,52 @@
 const prisma = require('../database/prisma');
 const crypto = require('node:crypto');
 
+function publicAppBaseUrl() {
+  return (process.env.APP_URL || '').replace(/\/+$/, '');
+}
+
+async function resolveOptionalAffiliateId(raw) {
+  if (raw === undefined || raw === null || raw === '') {
+    return { ok: true, id: undefined };
+  }
+  const n =
+    typeof raw === 'number' && Number.isInteger(raw)
+      ? raw
+      : parseInt(String(raw).trim(), 10);
+  if (!Number.isFinite(n) || n < 1) {
+    return { ok: false, error: 'affiliateId inválido' };
+  }
+  const affiliate = await prisma.affiliate.findUnique({
+    where: { id: n }
+  });
+  if (!affiliate) {
+    return { ok: false, error: 'Afiliado não encontrado' };
+  }
+  return { ok: true, id: n };
+}
+
 class LinkController {
 
   async create(req, res) {
     try {
-      const { url, affiliateId } = req.body;
+      const { url, affiliateId: rawAffiliateId } = req.body;
 
-      if (!url) {
+      if (!url || typeof url !== 'string' || !url.trim()) {
         return res.status(400).json({
           error: 'URL é obrigatória'
         });
       }
+
+      const originalUrl = url.trim();
+
+      const affiliateResult =
+        await resolveOptionalAffiliateId(rawAffiliateId);
+      if (!affiliateResult.ok) {
+        return res.status(400).json({
+          error: affiliateResult.error
+        });
+      }
+      const affiliateId = affiliateResult.id;
 
       let userId;
       if (process.env.DEFAULT_USER_ID) {
@@ -49,23 +84,16 @@ class LinkController {
         try {
           link = await prisma.link.create({
             data: {
-              originalUrl: url,
+              originalUrl,
               shortCode,
               userId,
-              affiliateId
+              ...(affiliateId !== undefined && { affiliateId })
             }
           });
           break;
         } catch (error) {
-          const target = error?.meta?.target;
-          const fields = Array.isArray(target)
-            ? target
-            : target != null
-              ? [target]
-              : [];
-          const shortCodeClash =
-            error?.code === 'P2002' && fields.includes('shortCode');
-          if (shortCodeClash && attempt < maxAttempts - 1) {
+          // Único índice relevante no create é shortCode; meta.target varia por driver.
+          if (error?.code === 'P2002' && attempt < maxAttempts - 1) {
             continue;
           }
           throw error;
@@ -80,10 +108,17 @@ class LinkController {
 
       return res.status(201).json({
         message: 'Link criado com sucesso',
-        link: `${process.env.APP_URL}/r/${link.shortCode}`
+        link: `${publicAppBaseUrl()}/r/${link.shortCode}`
       });
     } catch (error) {
       console.error(error);
+
+      if (error?.code === 'P2003') {
+        return res.status(400).json({
+          error:
+            'Referência inválida (usuário ou afiliado). Verifique os dados.'
+        });
+      }
 
       return res.status(500).json({
         error: 'Erro ao criar link'
@@ -153,6 +188,7 @@ class LinkController {
         id: link.id,
         originalUrl: link.originalUrl,
         shortCode: link.shortCode,
+        promoLink: `${publicAppBaseUrl()}/r/${link.shortCode}`,
         totalClicks: link.clicks.length,
         clicks: link.clicks
       });
@@ -203,7 +239,8 @@ class LinkController {
           id: link.id,
           shortCode: link.shortCode,
           originalUrl: link.originalUrl,
-          clicks: link.clicks.length
+          clicks: link.clicks.length,
+          promoLink: `${publicAppBaseUrl()}/r/${link.shortCode}`
         }))
       });
     } catch (error) {
