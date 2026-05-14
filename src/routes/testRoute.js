@@ -5,9 +5,16 @@ const prisma = require('../database/prisma');
 
 router.get('/test-db', async (req, res) => {
   try {
-    const users = await prisma.user.findMany();
+    const [totalUsers, totalLinks] = await Promise.all([
+      prisma.user.count(),
+      prisma.link.count()
+    ]);
 
-    res.json(users);
+    res.json({
+      database: 'Conectado ✅',
+      totalUsers,
+      totalLinks
+    });
   } catch (error) {
     console.error(error);
 

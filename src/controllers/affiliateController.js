@@ -10,6 +10,12 @@ class AffiliateController {
         phone
       } = req.body;
 
+      if (!name || !email) {
+        return res.status(400).json({
+          error: 'Nome e email são obrigatórios'
+        });
+      }
+
       const affiliate =
         await prisma.affiliate.create({
           data: {
@@ -22,7 +28,6 @@ class AffiliateController {
       return res.status(201).json(
         affiliate
       );
-
     } catch (error) {
       console.error(error);
 
