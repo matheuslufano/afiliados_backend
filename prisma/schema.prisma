@@ -12,6 +12,7 @@ model User {
   name      String
   email     String   @unique
   password  String
+  city      String?
   createdAt DateTime @default(now())
 
   links Link[]
@@ -22,6 +23,7 @@ model Affiliate {
   name      String
   email     String?  @unique
   phone     String?
+  city      String?
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
@@ -32,6 +34,7 @@ model Link {
   id           Int      @id @default(autoincrement())
   originalUrl  String
   shortCode    String   @unique
+  affiliateUrl String?
   createdAt    DateTime @default(now())
 
   userId Int

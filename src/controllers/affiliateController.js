@@ -7,21 +7,28 @@ class AffiliateController {
       const {
         name,
         email,
-        phone
+        phone,
+        city
       } = req.body;
 
-      if (!name || !email) {
+      const trimmedName = String(name || '').trim();
+      const trimmedEmail = String(email || '').trim();
+      const trimmedPhone = String(phone || '').trim();
+      const trimmedCity = String(city || '').trim();
+
+      if (!trimmedName || !trimmedEmail) {
         return res.status(400).json({
-          error: 'Nome e email são obrigatórios'
+          error: 'Nome e email sao obrigatorios'
         });
       }
 
       const affiliate =
         await prisma.affiliate.create({
           data: {
-            name,
-            email,
-            phone
+            name: trimmedName,
+            email: trimmedEmail,
+            phone: trimmedPhone || null,
+            city: trimmedCity || null
           }
         });
 
@@ -29,6 +36,12 @@ class AffiliateController {
         affiliate
       );
     } catch (error) {
+      if (error?.code === 'P2002') {
+        return res.status(409).json({
+          error: 'E-mail ja cadastrado'
+        });
+      }
+
       console.error(error);
 
       return res.status(500).json({
@@ -65,8 +78,31 @@ class AffiliateController {
         name,
         email,
         phone,
+        city,
         active
       } = req.body;
+
+      const data = {};
+
+      if (name !== undefined) {
+        data.name = String(name).trim();
+      }
+
+      if (email !== undefined) {
+        data.email = String(email).trim();
+      }
+
+      if (phone !== undefined) {
+        data.phone = String(phone).trim() || null;
+      }
+
+      if (city !== undefined) {
+        data.city = String(city).trim() || null;
+      }
+
+      if (active !== undefined) {
+        data.active = active;
+      }
 
       const affiliate =
         await prisma.affiliate.update({
@@ -74,17 +110,18 @@ class AffiliateController {
             id: Number(id)
           },
 
-          data: {
-            name,
-            email,
-            phone,
-            active
-          }
+          data
         });
 
       return res.json(affiliate);
 
     } catch (error) {
+      if (error?.code === 'P2002') {
+        return res.status(409).json({
+          error: 'E-mail ja cadastrado'
+        });
+      }
+
       console.error(error);
 
       return res.status(500).json({

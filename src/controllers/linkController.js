@@ -1,8 +1,20 @@
 const prisma = require('../database/prisma');
 const crypto = require('node:crypto');
 
-function publicAppBaseUrl() {
-  return (process.env.APP_URL || '').replace(/\/+$/, '');
+function publicAppBaseUrl(req) {
+  const configuredUrl = (process.env.APP_URL || '').replace(/\/+$/, '');
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+
+  return `${protocol}://${host}`.replace(/\/+$/, '');
+}
+
+function buildAffiliateUrl(req, shortCode) {
+  return `${publicAppBaseUrl(req)}/r/${shortCode}`;
 }
 
 async function resolveOptionalAffiliateId(raw) {
@@ -81,11 +93,13 @@ class LinkController {
       let link;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const shortCode = crypto.randomBytes(4).toString('hex');
+        const affiliateUrl = buildAffiliateUrl(req, shortCode);
         try {
           link = await prisma.link.create({
             data: {
               originalUrl,
               shortCode,
+              affiliateUrl,
               userId,
               ...(affiliateId !== undefined && { affiliateId })
             }
@@ -108,7 +122,7 @@ class LinkController {
 
       return res.status(201).json({
         message: 'Link criado com sucesso',
-        link: `${publicAppBaseUrl()}/r/${link.shortCode}`
+        link: link.affiliateUrl
       });
     } catch (error) {
       console.error(error);
@@ -188,7 +202,7 @@ class LinkController {
         id: link.id,
         originalUrl: link.originalUrl,
         shortCode: link.shortCode,
-        promoLink: `${publicAppBaseUrl()}/r/${link.shortCode}`,
+        promoLink: link.affiliateUrl || buildAffiliateUrl(req, link.shortCode),
         totalClicks: link.clicks.length,
         clicks: link.clicks
       });
@@ -240,7 +254,7 @@ class LinkController {
           shortCode: link.shortCode,
           originalUrl: link.originalUrl,
           clicks: link.clicks.length,
-          promoLink: `${publicAppBaseUrl()}/r/${link.shortCode}`
+          promoLink: link.affiliateUrl || buildAffiliateUrl(req, link.shortCode)
         }))
       });
     } catch (error) {
