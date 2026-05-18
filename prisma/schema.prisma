@@ -30,8 +30,18 @@ model Affiliate {
   links Link[]
 } 
 
+model Campaign {
+  id             Int      @id @default(autoincrement())
+  name           String
+  destinationUrl String
+  createdAt      DateTime @default(now())
+
+  links Link[]
+}
+
 model Link {
   id           Int      @id @default(autoincrement())
+  name         String?
   originalUrl  String
   shortCode    String   @unique
   affiliateUrl String?
@@ -42,6 +52,9 @@ model Link {
 
   affiliateId Int?
   affiliate Affiliate? @relation(fields: [affiliateId], references: [id])
+
+  campaignId Int?
+  campaign Campaign? @relation(fields: [campaignId], references: [id])
 
   clicks Click[]
 }

@@ -15,6 +15,11 @@ router.post(
   linkController.create
 );
 
+router.delete(
+  '/links/:id',
+  linkController.delete
+);
+
 router.get(
   '/r/:shortCode',
   linkController.redirect

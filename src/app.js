@@ -7,6 +7,8 @@ const linkRoutes = require('./routes/linkRoutes');
 const affiliateRoutes = require('./routes/affiliateRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const cityRoutes = require('./routes/cityRoutes');
+const authRoutes = require('./routes/authRoutes');
+const campaignRoutes = require('./routes/campaignRoutes');
 
 const app = express();
 
@@ -18,6 +20,8 @@ app.use(linkRoutes);
 app.use(affiliateRoutes);
 app.use(dashboardRoutes);
 app.use(cityRoutes);
+app.use(authRoutes);
+app.use(campaignRoutes);
 
 app.get('/', (req, res) => {
   res.send('API funcionando 🚀');

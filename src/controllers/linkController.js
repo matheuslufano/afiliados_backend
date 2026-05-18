@@ -41,7 +41,11 @@ class LinkController {
 
   async create(req, res) {
     try {
-      const { url, affiliateId: rawAffiliateId } = req.body;
+      const {
+        name,
+        url,
+        affiliateId: rawAffiliateId
+      } = req.body;
 
       if (!url || typeof url !== 'string' || !url.trim()) {
         return res.status(400).json({
@@ -50,6 +54,7 @@ class LinkController {
       }
 
       const originalUrl = url.trim();
+      const linkName = String(name || '').trim();
 
       const affiliateResult =
         await resolveOptionalAffiliateId(rawAffiliateId);
@@ -97,6 +102,7 @@ class LinkController {
         try {
           link = await prisma.link.create({
             data: {
+              name: linkName || null,
               originalUrl,
               shortCode,
               affiliateUrl,
@@ -200,6 +206,7 @@ class LinkController {
 
       return res.json({
         id: link.id,
+        name: link.name,
         originalUrl: link.originalUrl,
         shortCode: link.shortCode,
         promoLink: link.affiliateUrl || buildAffiliateUrl(req, link.shortCode),
@@ -212,6 +219,53 @@ class LinkController {
 
       return res.status(500).json({
         error: 'Erro ao buscar estatísticas'
+      });
+    }
+  }
+
+  async delete(req, res) {
+    try {
+      const id = Number(req.params.id);
+
+      if (!Number.isFinite(id) || id < 1) {
+        return res.status(400).json({
+          error: 'ID do link invalido'
+        });
+      }
+
+      const link = await prisma.link.findUnique({
+        where: {
+          id
+        }
+      });
+
+      if (!link) {
+        return res.status(404).json({
+          error: 'Link nao encontrado'
+        });
+      }
+
+      await prisma.$transaction([
+        prisma.click.deleteMany({
+          where: {
+            linkId: id
+          }
+        }),
+        prisma.link.delete({
+          where: {
+            id
+          }
+        })
+      ]);
+
+      return res.json({
+        message: 'Link apagado com sucesso'
+      });
+    } catch (error) {
+      console.error(error);
+
+      return res.status(500).json({
+        error: 'Erro ao apagar link'
       });
     }
   }
@@ -251,6 +305,7 @@ class LinkController {
 
         links: affiliate.links.map(link => ({
           id: link.id,
+          name: link.name,
           shortCode: link.shortCode,
           originalUrl: link.originalUrl,
           clicks: link.clicks.length,
