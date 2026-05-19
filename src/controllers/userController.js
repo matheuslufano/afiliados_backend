@@ -33,12 +33,18 @@ class UserController {
     try {
       const name = String(req.body.name || '').trim();
       const email = String(req.body.email || '').trim().toLowerCase();
-      const password = String(req.body.password || '');
+      const password = String(req.body.password || '').trim();
       const city = String(req.body.city || '').trim();
 
       if (!name || !email || !password) {
         return res.status(400).json({
           error: 'Nome, e-mail e senha sao obrigatorios'
+        });
+      }
+
+      if (password.length < 6) {
+        return res.status(400).json({
+          error: 'A senha precisa ter pelo menos 6 caracteres'
         });
       }
 
@@ -106,8 +112,14 @@ class UserController {
       }
 
       if (req.body.password !== undefined) {
-        const password = String(req.body.password || '');
+        const password = String(req.body.password || '').trim();
         if (password) {
+          if (password.length < 6) {
+            return res.status(400).json({
+              error: 'A senha precisa ter pelo menos 6 caracteres'
+            });
+          }
+
           data.password = password;
         }
       }

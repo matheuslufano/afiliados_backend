@@ -1,5 +1,6 @@
 const prisma = require('../database/prisma');
 const crypto = require('node:crypto');
+const QRCode = require('qrcode');
 
 function publicAppBaseUrl(req) {
   const configuredUrl = (process.env.APP_URL || '').replace(/\/+$/, '');
@@ -38,6 +39,56 @@ async function resolveOptionalAffiliateId(raw) {
 }
 
 class LinkController {
+  async list(req, res) {
+    try {
+      const links = await prisma.link.findMany({
+        orderBy: {
+          createdAt: 'desc'
+        },
+        include: {
+          affiliate: true,
+          clicks: true
+        }
+      });
+
+      const formattedLinks = await Promise.all(
+        links.map(async (link) => {
+          const promoLink =
+            link.affiliateUrl || buildAffiliateUrl(req, link.shortCode);
+
+          return {
+            id: link.id,
+            name: link.name,
+            originalUrl: link.originalUrl,
+            shortCode: link.shortCode,
+            promoLink,
+            clicks: link.clicks.length,
+            createdAt: link.createdAt,
+            affiliate: link.affiliate
+              ? {
+                  id: link.affiliate.id,
+                  name: link.affiliate.name,
+                  email: link.affiliate.email,
+                  city: link.affiliate.city
+                }
+              : null,
+            qrCode: await QRCode.toDataURL(promoLink, {
+              margin: 1,
+              width: 220
+            })
+          };
+        })
+      );
+
+      return res.json(formattedLinks);
+    } catch (error) {
+      console.error(error);
+
+      return res.status(500).json({
+        error: 'Erro ao listar links'
+      });
+    }
+  }
 
   async create(req, res) {
     try {

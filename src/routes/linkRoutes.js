@@ -10,6 +10,11 @@ router.get(
   linkController.affiliateStats
 );
 
+router.get(
+  '/links',
+  linkController.list
+);
+
 router.post(
   '/links',
   linkController.create
