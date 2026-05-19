@@ -258,6 +258,67 @@ class CampaignController {
       });
     }
   }
+
+  async delete(req, res) {
+    try {
+      const id = Number(req.params.id);
+
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({
+          error: 'Campanha invalida'
+        });
+      }
+
+      const campaign = await prisma.campaign.findUnique({
+        where: {
+          id
+        },
+        include: {
+          links: {
+            select: {
+              id: true
+            }
+          }
+        }
+      });
+
+      if (!campaign) {
+        return res.status(404).json({
+          error: 'Campanha nao encontrada'
+        });
+      }
+
+      const linkIds = campaign.links.map((link) => link.id);
+
+      await prisma.$transaction([
+        prisma.click.deleteMany({
+          where: {
+            linkId: {
+              in: linkIds
+            }
+          }
+        }),
+        prisma.link.deleteMany({
+          where: {
+            campaignId: id
+          }
+        }),
+        prisma.campaign.delete({
+          where: {
+            id
+          }
+        })
+      ]);
+
+      return res.status(204).send();
+    } catch (error) {
+      console.error(error);
+
+      return res.status(500).json({
+        error: 'Erro ao apagar campanha'
+      });
+    }
+  }
 }
 
 module.exports = new CampaignController();

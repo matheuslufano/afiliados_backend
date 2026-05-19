@@ -13,4 +13,9 @@ router.get(
   campaignController.list
 );
 
+router.delete(
+  '/campaigns/:id',
+  campaignController.delete
+);
+
 module.exports = router;

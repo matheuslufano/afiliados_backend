@@ -9,6 +9,7 @@ const dashboardRoutes = require('./routes/dashboardRoutes');
 const cityRoutes = require('./routes/cityRoutes');
 const authRoutes = require('./routes/authRoutes');
 const campaignRoutes = require('./routes/campaignRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use(dashboardRoutes);
 app.use(cityRoutes);
 app.use(authRoutes);
 app.use(campaignRoutes);
+app.use(userRoutes);
 
 app.get('/', (req, res) => {
   res.send('API funcionando 🚀');
