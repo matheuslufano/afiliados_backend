@@ -26,6 +26,11 @@ router.delete(
 );
 
 router.get(
+  '/links/:shortCode/whatsapp',
+  linkController.whatsapp
+);
+
+router.get(
   '/r/:shortCode',
   linkController.redirect
 );

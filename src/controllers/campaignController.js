@@ -84,6 +84,8 @@ function formatCampaign(req, campaign) {
     shortCode: link.shortCode,
     promoLink: link.affiliateUrl || buildAffiliateUrl(req, link.shortCode),
     clicks: link.clicks.length,
+    conversions: link.conversions?.length || 0,
+    whatsappLink: `${publicAppBaseUrl(req)}/links/${link.shortCode}/whatsapp`,
     affiliate: link.affiliate
       ? {
           id: link.affiliate.id,
@@ -96,6 +98,11 @@ function formatCampaign(req, campaign) {
 
   const totalClicks = links.reduce(
     (sum, link) => sum + link.clicks,
+    0
+  );
+
+  const totalConversions = links.reduce(
+    (sum, link) => sum + link.conversions,
     0
   );
 
@@ -117,6 +124,7 @@ function formatCampaign(req, campaign) {
     totalLinks: links.length,
     totalAffiliates: links.filter((link) => link.affiliate).length,
     totalClicks,
+    totalConversions,
     topAffiliate,
     topLink,
     links
@@ -241,7 +249,8 @@ class CampaignController {
             },
             include: {
               affiliate: true,
-              clicks: true
+              clicks: true,
+              conversions: true
             }
           }
         }
@@ -292,6 +301,13 @@ class CampaignController {
 
       await prisma.$transaction([
         prisma.click.deleteMany({
+          where: {
+            linkId: {
+              in: linkIds
+            }
+          }
+        }),
+        prisma.conversion.deleteMany({
           where: {
             linkId: {
               in: linkIds

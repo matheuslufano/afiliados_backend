@@ -14,12 +14,16 @@ class DashboardController {
       const totalClicks =
         await prisma.click.count();
 
+      const totalConversions =
+        await prisma.conversion.count();
+
       const affiliates =
         await prisma.affiliate.findMany({
           include: {
             links: {
               include: {
-                clicks: true
+                clicks: true,
+                conversions: true
               }
             }
           }
@@ -35,10 +39,18 @@ class DashboardController {
               0
             );
 
+          const conversions =
+            affiliate.links.reduce(
+              (acc, link) =>
+                acc + link.conversions.length,
+              0
+            );
+
           return {
             id: affiliate.id,
             name: affiliate.name,
-            totalClicks: clicks
+            totalClicks: clicks,
+            totalConversions: conversions
           };
         })
         .sort(
@@ -51,6 +63,7 @@ class DashboardController {
         totalAffiliates,
         totalLinks,
         totalClicks,
+        totalConversions,
 
         topAffiliates:
           ranking.slice(0, 5)

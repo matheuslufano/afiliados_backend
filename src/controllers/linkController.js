@@ -18,6 +18,42 @@ function buildAffiliateUrl(req, shortCode) {
   return `${publicAppBaseUrl(req)}/r/${shortCode}`;
 }
 
+function normalizePhoneNumber(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function buildWhatsAppUrl(message) {
+  const text =
+    message ||
+    process.env.WHATSAPP_MESSAGE ||
+    'Tenho interesse no Plano Familia Netbox.';
+
+  if (process.env.WHATSAPP_URL) {
+    const url = new URL(process.env.WHATSAPP_URL);
+    url.searchParams.set('text', text);
+    return url.toString();
+  }
+
+  const phone = normalizePhoneNumber(process.env.WHATSAPP_NUMBER);
+  if (!phone) {
+    throw new Error('WHATSAPP_URL ou WHATSAPP_NUMBER nao configurado');
+  }
+
+  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+}
+
+function appendReferralCode(url, shortCode) {
+  try {
+    const destination = new URL(url);
+    if (!destination.searchParams.has('ref')) {
+      destination.searchParams.set('ref', shortCode);
+    }
+    return destination.toString();
+  } catch {
+    return url;
+  }
+}
+
 async function resolveOptionalAffiliateId(raw) {
   if (raw === undefined || raw === null || raw === '') {
     return { ok: true, id: undefined };
@@ -47,7 +83,8 @@ class LinkController {
         },
         include: {
           affiliate: true,
-          clicks: true
+          clicks: true,
+          conversions: true
         }
       });
 
@@ -63,6 +100,8 @@ class LinkController {
             shortCode: link.shortCode,
             promoLink,
             clicks: link.clicks.length,
+            conversions: link.conversions.length,
+            whatsappLink: `${publicAppBaseUrl(req)}/links/${link.shortCode}/whatsapp`,
             createdAt: link.createdAt,
             affiliate: link.affiliate
               ? {
@@ -221,7 +260,7 @@ class LinkController {
         }
       });
 
-      return res.redirect(link.originalUrl);
+      return res.redirect(appendReferralCode(link.originalUrl, shortCode));
 
     } catch (error) {
       console.error(error);
@@ -245,6 +284,11 @@ class LinkController {
             orderBy: {
               clickedAt: 'desc'
             }
+          },
+          conversions: {
+            orderBy: {
+              convertedAt: 'desc'
+            }
           }
         }
       });
@@ -262,7 +306,10 @@ class LinkController {
         shortCode: link.shortCode,
         promoLink: link.affiliateUrl || buildAffiliateUrl(req, link.shortCode),
         totalClicks: link.clicks.length,
-        clicks: link.clicks
+        totalConversions: link.conversions.length,
+        whatsappLink: `${publicAppBaseUrl(req)}/links/${link.shortCode}/whatsapp`,
+        clicks: link.clicks,
+        conversions: link.conversions
       });
 
     } catch (error) {
@@ -302,6 +349,11 @@ class LinkController {
             linkId: id
           }
         }),
+        prisma.conversion.deleteMany({
+          where: {
+            linkId: id
+          }
+        }),
         prisma.link.delete({
           where: {
             id
@@ -332,7 +384,8 @@ class LinkController {
         include: {
           links: {
             include: {
-              clicks: true
+              clicks: true,
+              conversions: true
             }
           }
         }
@@ -349,10 +402,16 @@ class LinkController {
         0
       );
 
+      const totalConversions = affiliate.links.reduce(
+        (acc, link) => acc + link.conversions.length,
+        0
+      );
+
       return res.json({
         affiliate: affiliate.name,
         totalLinks: affiliate.links.length,
         totalClicks,
+        totalConversions,
 
         links: affiliate.links.map(link => ({
           id: link.id,
@@ -360,6 +419,8 @@ class LinkController {
           shortCode: link.shortCode,
           originalUrl: link.originalUrl,
           clicks: link.clicks.length,
+          conversions: link.conversions.length,
+          whatsappLink: `${publicAppBaseUrl(req)}/links/${link.shortCode}/whatsapp`,
           promoLink: link.affiliateUrl || buildAffiliateUrl(req, link.shortCode)
         }))
       });
@@ -368,6 +429,51 @@ class LinkController {
 
       return res.status(500).json({
         error: 'Erro ao buscar estatísticas do afiliado'
+      });
+    }
+  }
+
+  async whatsapp(req, res) {
+    try {
+      const { shortCode } = req.params;
+      const product =
+        String(req.query.product || 'Plano Familia Netbox').trim();
+
+      const link = await prisma.link.findUnique({
+        where: {
+          shortCode
+        }
+      });
+
+      if (!link) {
+        return res.status(404).json({
+          error: 'Link nao encontrado'
+        });
+      }
+
+      const destination = buildWhatsAppUrl(
+        req.query.message
+          ? String(req.query.message)
+          : `Tenho interesse no ${product}. Vim pelo link de divulgacao ${shortCode}.`
+      );
+
+      await prisma.conversion.create({
+        data: {
+          type: 'whatsapp',
+          product,
+          destination,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+          linkId: link.id
+        }
+      });
+
+      return res.redirect(destination);
+    } catch (error) {
+      console.error(error);
+
+      return res.status(500).json({
+        error: 'Erro ao registrar conversao'
       });
     }
   }

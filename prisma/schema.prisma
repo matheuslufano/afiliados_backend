@@ -57,6 +57,7 @@ model Link {
   campaign Campaign? @relation(fields: [campaignId], references: [id])
 
   clicks Click[]
+  conversions Conversion[]
 }
 
 model Click {
@@ -64,6 +65,19 @@ model Click {
   ipAddress  String?
   userAgent  String?
   clickedAt  DateTime @default(now())
+
+  linkId Int
+  link   Link @relation(fields: [linkId], references: [id])
+}
+
+model Conversion {
+  id          Int      @id @default(autoincrement())
+  type        String   @default("whatsapp")
+  product     String?
+  destination String?
+  ipAddress   String?
+  userAgent   String?
+  convertedAt DateTime @default(now())
 
   linkId Int
   link   Link @relation(fields: [linkId], references: [id])
