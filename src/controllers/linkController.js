@@ -2,6 +2,8 @@ const prisma = require('../database/prisma');
 const crypto = require('node:crypto');
 const QRCode = require('qrcode');
 
+const DEFAULT_WHATSAPP_NUMBER = '55008006022732';
+
 function publicAppBaseUrl(req) {
   const configuredUrl = (process.env.APP_URL || '').replace(/\/+$/, '');
   if (configuredUrl) {
@@ -34,10 +36,9 @@ function buildWhatsAppUrl(message) {
     return url.toString();
   }
 
-  const phone = normalizePhoneNumber(process.env.WHATSAPP_NUMBER);
-  if (!phone) {
-    throw new Error('WHATSAPP_URL ou WHATSAPP_NUMBER nao configurado');
-  }
+  const phone = normalizePhoneNumber(
+    process.env.WHATSAPP_NUMBER || DEFAULT_WHATSAPP_NUMBER
+  );
 
   return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
 }
