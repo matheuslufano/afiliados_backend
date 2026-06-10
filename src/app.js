@@ -10,6 +10,7 @@ const cityRoutes = require('./routes/cityRoutes');
 const authRoutes = require('./routes/authRoutes');
 const campaignRoutes = require('./routes/campaignRoutes');
 const userRoutes = require('./routes/userRoutes');
+const chatmixWebhookRoutes = require('./routes/chatmixWebhookRoutes');
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use(cityRoutes);
 app.use(authRoutes);
 app.use(campaignRoutes);
 app.use(userRoutes);
+app.use(chatmixWebhookRoutes);
 
 app.get('/', (req, res) => {
   res.send('API funcionando 🚀');

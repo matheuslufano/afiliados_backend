@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: afiliados-backend
+    runtime: node
+    plan: free
+    region: virginia
+    buildCommand: npm ci
+    preDeployCommand: npm run db:migrate:deploy
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: WHATSAPP_NUMBER
+        value: "55008006022732"
+      - key: WHATSAPP_MESSAGE
+        value: Tenho interesse no Plano Familia Netbox.

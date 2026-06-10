@@ -10,6 +10,8 @@
     "test:whatsapp-conversion": "node scripts/test-whatsapp-conversion.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:aiven": "node scripts/migrate-to-aiven.js",
     "db:push": "prisma db push"
   },
   "keywords": [],
