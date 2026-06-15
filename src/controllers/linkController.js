@@ -384,9 +384,20 @@ class LinkController {
         },
         include: {
           links: {
+            orderBy: {
+              createdAt: 'desc'
+            },
             include: {
-              clicks: true,
-              conversions: true
+              clicks: {
+                orderBy: {
+                  clickedAt: 'desc'
+                }
+              },
+              conversions: {
+                orderBy: {
+                  convertedAt: 'desc'
+                }
+              }
             }
           }
         }
@@ -408,22 +419,52 @@ class LinkController {
         0
       );
 
-      return res.json({
-        affiliate: affiliate.name,
-        totalLinks: affiliate.links.length,
-        totalClicks,
-        totalConversions,
+      const formattedLinks = affiliate.links.map(link => {
+        const promoLink =
+          link.affiliateUrl || buildAffiliateUrl(req, link.shortCode);
+        const whatsappLink =
+          `${publicAppBaseUrl(req)}/links/${link.shortCode}/whatsapp`;
+        const latestClick = link.clicks[0] || null;
 
-        links: affiliate.links.map(link => ({
+        return {
           id: link.id,
           name: link.name,
           shortCode: link.shortCode,
           originalUrl: link.originalUrl,
           clicks: link.clicks.length,
           conversions: link.conversions.length,
-          whatsappLink: `${publicAppBaseUrl(req)}/links/${link.shortCode}/whatsapp`,
-          promoLink: link.affiliateUrl || buildAffiliateUrl(req, link.shortCode)
-        }))
+          whatsappLink,
+          promoLink,
+          latestClickAt: latestClick?.clickedAt || null,
+          conversionEvents: link.conversions.map(conversion => ({
+            id: conversion.id,
+            type: conversion.type,
+            product: conversion.product,
+            destination: conversion.destination,
+            ipAddress: conversion.ipAddress,
+            userAgent: conversion.userAgent,
+            convertedAt: conversion.convertedAt,
+            linkId: link.id,
+            linkName: link.name,
+            shortCode: link.shortCode,
+            originalUrl: link.originalUrl,
+            promoLink,
+            whatsappLink,
+            totalClicks: link.clicks.length,
+            latestClickAt: latestClick?.clickedAt || null
+          }))
+        };
+      });
+
+      return res.json({
+        affiliate: affiliate.name,
+        totalLinks: affiliate.links.length,
+        totalClicks,
+        totalConversions,
+        conversionEvents: formattedLinks.flatMap(
+          link => link.conversionEvents
+        ),
+        links: formattedLinks
       });
     } catch (error) {
       console.error(error);
