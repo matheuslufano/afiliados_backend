@@ -9,6 +9,9 @@ const {
 const {
   buildWhatsAppUrl
 } = require('../utils/whatsapp');
+const {
+  publishRealtimeEvent
+} = require('../utils/realtimeEvents');
 
 function appendReferralCode(url, shortCode) {
   try {
@@ -220,12 +223,18 @@ class LinkController {
         });
       }
 
-      await prisma.click.create({
+      const click = await prisma.click.create({
         data: {
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
           linkId: link.id
         }
+      });
+
+      publishRealtimeEvent('link-clicked', {
+        linkId: link.id,
+        shortCode: link.shortCode,
+        clickedAt: click.clickedAt
       });
 
       return res.redirect(appendReferralCode(link.originalUrl, shortCode));
@@ -464,7 +473,7 @@ class LinkController {
           : `Tenho interesse no ${product}. Vim pelo link de divulgacao ${shortCode}.`
       );
 
-      await prisma.conversion.create({
+      const conversion = await prisma.conversion.create({
         data: {
           type: 'whatsapp',
           product,
@@ -473,6 +482,14 @@ class LinkController {
           userAgent: req.headers['user-agent'],
           linkId: link.id
         }
+      });
+
+      publishRealtimeEvent('link-converted', {
+        linkId: link.id,
+        shortCode: link.shortCode,
+        conversionId: conversion.id,
+        product,
+        convertedAt: conversion.convertedAt
       });
 
       return res.redirect(destination);
