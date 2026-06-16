@@ -15,6 +15,10 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
+      - key: APP_URL
+        sync: false
+      - key: LANDING_PAGE_URL
+        sync: false
       - key: WHATSAPP_NUMBER
         value: "55008006022732"
       - key: WHATSAPP_MESSAGE

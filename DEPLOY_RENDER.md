@@ -29,12 +29,13 @@ Depois do primeiro deploy, abra **Environment** no servico e adicione apenas as 
 
 ```bash
 APP_URL=https://SEU-SERVICO.onrender.com
+LANDING_PAGE_URL=https://SUA-LANDING-WORDPRESS.com/express
 DEFAULT_USER_ID=1
 WHATSAPP_URL=https://api.whatsapp.com/send/?phone=55008006022732&text&type=phone_number&app_absent=0
 CHATMIX_WEBHOOK_SECRET=um-segredo-forte
 ```
 
-Use `APP_URL` para fixar a URL publica usada na geracao de links. Se ela ficar vazia, a API tenta inferir a URL pelo host da requisicao.
+A API usa o host da requisicao para gerar os links publicos e usa `APP_URL` como fallback quando nao conseguir inferir esse host. Use `LANDING_PAGE_URL` para deixar o painel e o backend criarem links direto para a landing WordPress.
 
 ## 4. Atualizar o frontend
 
@@ -42,6 +43,7 @@ No deploy do frontend, configure:
 
 ```bash
 NEXT_PUBLIC_API_URL=https://SEU-SERVICO.onrender.com
+NEXT_PUBLIC_LANDING_PAGE_URL=https://SUA-LANDING-WORDPRESS.com/express
 ```
 
 Depois teste:

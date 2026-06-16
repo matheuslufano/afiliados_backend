@@ -1,47 +1,14 @@
 const prisma = require('../database/prisma');
 const crypto = require('node:crypto');
 const QRCode = require('qrcode');
-
-const DEFAULT_WHATSAPP_NUMBER = '55008006022732';
-
-function publicAppBaseUrl(req) {
-  const configuredUrl = (process.env.APP_URL || '').replace(/\/+$/, '');
-  if (configuredUrl) {
-    return configuredUrl;
-  }
-
-  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-  const host = req.headers['x-forwarded-host'] || req.get('host');
-
-  return `${protocol}://${host}`.replace(/\/+$/, '');
-}
-
-function buildAffiliateUrl(req, shortCode) {
-  return `${publicAppBaseUrl(req)}/r/${shortCode}`;
-}
-
-function normalizePhoneNumber(value) {
-  return String(value || '').replace(/\D/g, '');
-}
-
-function buildWhatsAppUrl(message) {
-  const text =
-    message ||
-    process.env.WHATSAPP_MESSAGE ||
-    'Tenho interesse no Plano Familia Netbox.';
-
-  if (process.env.WHATSAPP_URL) {
-    const url = new URL(process.env.WHATSAPP_URL);
-    url.searchParams.set('text', text);
-    return url.toString();
-  }
-
-  const phone = normalizePhoneNumber(
-    process.env.WHATSAPP_NUMBER || DEFAULT_WHATSAPP_NUMBER
-  );
-
-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
-}
+const {
+  buildAffiliateUrl,
+  buildWhatsappTrackingUrl,
+  getDefaultLandingPageUrl
+} = require('../utils/publicUrls');
+const {
+  buildWhatsAppUrl
+} = require('../utils/whatsapp');
 
 function appendReferralCode(url, shortCode) {
   try {
@@ -91,8 +58,7 @@ class LinkController {
 
       const formattedLinks = await Promise.all(
         links.map(async (link) => {
-          const promoLink =
-            link.affiliateUrl || buildAffiliateUrl(req, link.shortCode);
+          const promoLink = buildAffiliateUrl(req, link.shortCode);
 
           return {
             id: link.id,
@@ -102,7 +68,7 @@ class LinkController {
             promoLink,
             clicks: link.clicks.length,
             conversions: link.conversions.length,
-            whatsappLink: `${publicAppBaseUrl(req)}/links/${link.shortCode}/whatsapp`,
+            whatsappLink: buildWhatsappTrackingUrl(req, link.shortCode),
             createdAt: link.createdAt,
             affiliate: link.affiliate
               ? {
@@ -138,13 +104,14 @@ class LinkController {
         affiliateId: rawAffiliateId
       } = req.body;
 
-      if (!url || typeof url !== 'string' || !url.trim()) {
+      const originalUrl = String(url || getDefaultLandingPageUrl()).trim();
+
+      if (!originalUrl) {
         return res.status(400).json({
           error: 'URL é obrigatória'
         });
       }
 
-      const originalUrl = url.trim();
       const linkName = String(name || '').trim();
 
       const affiliateResult =
@@ -219,7 +186,7 @@ class LinkController {
 
       return res.status(201).json({
         message: 'Link criado com sucesso',
-        link: link.affiliateUrl
+        link: buildAffiliateUrl(req, link.shortCode)
       });
     } catch (error) {
       console.error(error);
@@ -305,10 +272,10 @@ class LinkController {
         name: link.name,
         originalUrl: link.originalUrl,
         shortCode: link.shortCode,
-        promoLink: link.affiliateUrl || buildAffiliateUrl(req, link.shortCode),
+        promoLink: buildAffiliateUrl(req, link.shortCode),
         totalClicks: link.clicks.length,
         totalConversions: link.conversions.length,
-        whatsappLink: `${publicAppBaseUrl(req)}/links/${link.shortCode}/whatsapp`,
+        whatsappLink: buildWhatsappTrackingUrl(req, link.shortCode),
         clicks: link.clicks,
         conversions: link.conversions
       });
@@ -420,10 +387,8 @@ class LinkController {
       );
 
       const formattedLinks = affiliate.links.map(link => {
-        const promoLink =
-          link.affiliateUrl || buildAffiliateUrl(req, link.shortCode);
-        const whatsappLink =
-          `${publicAppBaseUrl(req)}/links/${link.shortCode}/whatsapp`;
+        const promoLink = buildAffiliateUrl(req, link.shortCode);
+        const whatsappLink = buildWhatsappTrackingUrl(req, link.shortCode);
         const latestClick = link.clicks[0] || null;
 
         return {

@@ -1,21 +1,10 @@
 const crypto = require('node:crypto');
 const prisma = require('../database/prisma');
-
-function publicAppBaseUrl(req) {
-  const configuredUrl = (process.env.APP_URL || '').replace(/\/+$/, '');
-  if (configuredUrl) {
-    return configuredUrl;
-  }
-
-  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-  const host = req.headers['x-forwarded-host'] || req.get('host');
-
-  return `${protocol}://${host}`.replace(/\/+$/, '');
-}
-
-function buildAffiliateUrl(req, shortCode) {
-  return `${publicAppBaseUrl(req)}/r/${shortCode}`;
-}
+const {
+  buildAffiliateUrl,
+  buildWhatsappTrackingUrl,
+  getDefaultLandingPageUrl
+} = require('../utils/publicUrls');
 
 async function getDefaultUserId() {
   if (process.env.DEFAULT_USER_ID) {
@@ -82,10 +71,10 @@ function formatCampaign(req, campaign) {
     name: link.name,
     originalUrl: link.originalUrl,
     shortCode: link.shortCode,
-    promoLink: link.affiliateUrl || buildAffiliateUrl(req, link.shortCode),
+    promoLink: buildAffiliateUrl(req, link.shortCode),
     clicks: link.clicks.length,
     conversions: link.conversions?.length || 0,
-    whatsappLink: `${publicAppBaseUrl(req)}/links/${link.shortCode}/whatsapp`,
+    whatsappLink: buildWhatsappTrackingUrl(req, link.shortCode),
     affiliate: link.affiliate
       ? {
           id: link.affiliate.id,
@@ -135,7 +124,9 @@ class CampaignController {
   async create(req, res) {
     try {
       const name = String(req.body.name || '').trim();
-      const destinationUrl = String(req.body.destinationUrl || '').trim();
+      const destinationUrl = String(
+        req.body.destinationUrl || getDefaultLandingPageUrl()
+      ).trim();
       const affiliateIds = Array.isArray(req.body.affiliateIds)
         ? req.body.affiliateIds.map(Number)
         : [];

@@ -12,8 +12,11 @@ const campaignRoutes = require('./routes/campaignRoutes');
 const userRoutes = require('./routes/userRoutes');
 const chatmixWebhookRoutes = require('./routes/chatmixWebhookRoutes');
 const sgpRoutes = require('./routes/sgpRoutes');
+const wordpressRoutes = require('./routes/wordpressRoutes');
 
 const app = express();
+
+app.set('trust proxy', true);
 
 app.use(cors());
 app.use(express.json());
@@ -28,6 +31,7 @@ app.use(campaignRoutes);
 app.use(userRoutes);
 app.use(chatmixWebhookRoutes);
 app.use(sgpRoutes);
+app.use(wordpressRoutes);
 
 app.get('/', (req, res) => {
   res.send('API funcionando 🚀');
