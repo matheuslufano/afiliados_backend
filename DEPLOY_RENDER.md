@@ -1,21 +1,22 @@
-# Migracao do backend para Render
+# Publicacao do backend na VPS
 
-Este backend e um app Express com Prisma/Postgres. A configuracao em `render.yaml` cria um Web Service gratuito no Render, roda as migrations do Prisma antes de iniciar e usa `/health` como health check.
+Este backend e um app Express com Prisma/Postgres. Em producao, o frontend na Vercel deve falar com a API HTTP rodando na VPS em `http://72.62.8.85:3001`.
 
 ## 1. Antes de publicar
 
-1. Troque a senha do banco que apareceu no arquivo `api/index.js`. Ela foi removida do codigo, mas se ja foi commitada ou compartilhada, trate como vazada.
-2. Garanta que o repo do backend esteja no GitHub/GitLab/Bitbucket.
-3. Tenha em maos a `DATABASE_URL` do Postgres atual.
+1. Garanta que a VPS tenha Node.js, npm e acesso ao banco configurado em `DATABASE_URL`.
+2. Garanta que a porta `3001` esteja liberada no firewall da VPS.
+3. Tenha em maos as credenciais do SGP.
 
-## 2. Criar o servico
+## 2. Entrar na VPS
 
-1. Entre em <https://dashboard.render.com>.
-2. Clique em **New > Blueprint** e selecione o repositorio do backend.
-3. Quando o Render pedir `DATABASE_URL`, cole a string do banco.
-4. Confirme o deploy.
+Entre por SSH:
 
-O Render vai executar:
+```bash
+ssh netbox@72.62.8.85
+```
+
+Depois atualize o projeto e instale dependencias:
 
 ```bash
 npm ci
@@ -23,33 +24,43 @@ npm run db:migrate:deploy
 npm start
 ```
 
-## 3. Variaveis opcionais
+Em producao, prefira manter o app com PM2 ou systemd.
 
-Depois do primeiro deploy, abra **Environment** no servico e adicione apenas as que voce usa:
+## 3. Variaveis de ambiente
+
+Configure o `.env` do backend na VPS:
 
 ```bash
-APP_URL=https://SEU-SERVICO.onrender.com
+PORT=3001
+APP_URL=http://72.62.8.85:3001
 LANDING_PAGE_URL=https://SUA-LANDING-WORDPRESS.com/express
 DEFAULT_USER_ID=1
 WHATSAPP_URL=https://api.whatsapp.com/send/?phone=55008006022732&text&type=phone_number&app_absent=0
 CHATMIX_WEBHOOK_SECRET=um-segredo-forte
+SGP_BASE_URL=https://SEU-SGP.com.br
+SGP_APP=nome_da_aplicacao_do_sgp
+SGP_TOKEN=token_gerado_no_sgp
+SGP_WEBHOOK_SECRET=segredo_para_chamar_as_rotas_sgp
+SGP_DEFAULT_MODE=precadastro
 ```
 
 A API usa o host da requisicao para gerar os links publicos e usa `APP_URL` como fallback quando nao conseguir inferir esse host. Use `LANDING_PAGE_URL` para deixar o painel e o backend criarem links direto para a landing WordPress.
 
 ## 4. Atualizar o frontend
 
-No deploy do frontend, configure:
+No deploy do frontend na Vercel, configure:
 
 ```bash
-NEXT_PUBLIC_API_URL=https://SEU-SERVICO.onrender.com
+BACKEND_URL=http://72.62.8.85:3001
+NEXT_PUBLIC_API_URL=/api-backend
 NEXT_PUBLIC_LANDING_PAGE_URL=https://SUA-LANDING-WORDPRESS.com/express
 ```
 
 Depois teste:
 
 ```bash
-curl https://SEU-SERVICO.onrender.com/health
+curl http://72.62.8.85:3001/health
+curl http://72.62.8.85:3001/integrations/sgp/status
 ```
 
-Se retornar `status: online` e `database: ok`, a API esta de pe.
+Se `/health` retornar `status: online` e `database: ok`, a API esta de pe. Se `/integrations/sgp/status` retornar `configured: true`, a comunicacao com o SGP esta configurada.
