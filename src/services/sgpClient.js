@@ -33,6 +33,24 @@ function withCredentials(payload = {}) {
   };
 }
 
+function getStatus() {
+  try {
+    const config = getConfig();
+    const url = new URL(config.baseUrl);
+
+    return {
+      configured: true,
+      baseUrl: `${url.protocol}//${url.host}`,
+      app: config.app
+    };
+  } catch (error) {
+    return {
+      configured: false,
+      error: error.message
+    };
+  }
+}
+
 function pruneEmptyValues(value) {
   if (Array.isArray(value)) {
     return value
@@ -187,10 +205,64 @@ function createCrmContractByClientId(clientId, payload) {
   });
 }
 
+async function requestFirstSuccessful(attempts) {
+  let lastError;
+
+  for (const options of attempts) {
+    try {
+      return await requestSgp(options.path, options);
+    } catch (error) {
+      lastError = error;
+      if (![404, 405, 415].includes(error.status)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+function searchCustomer(document) {
+  const cpfcnpj = String(document || '').replace(/\D/g, '');
+
+  if (!cpfcnpj) {
+    const error = new Error('Informe CPF ou CNPJ para consultar no SGP.');
+    error.status = 400;
+    throw error;
+  }
+
+  const payload = withCredentials({
+    cpfcnpj
+  });
+
+  return requestFirstSuccessful([
+    {
+      path: '/api/ura/consultacliente/',
+      bodyMode: 'form',
+      body: payload
+    },
+    {
+      path: '/api/ura/consultacliente',
+      bodyMode: 'form',
+      body: payload
+    },
+    {
+      path: '/api/ura/consultacliente/',
+      body: payload
+    },
+    {
+      path: '/api/ura/consultacliente',
+      body: payload
+    }
+  ]);
+}
+
 module.exports = {
   createCrmClient,
   createCrmContractByClientId,
   createCrmContractByCpfCnpj,
   createPreCadastro,
+  getStatus,
+  searchCustomer,
   normalizePersonType
 };

@@ -75,6 +75,10 @@ model Conversion {
   type        String   @default("whatsapp")
   product     String?
   destination String?
+  visitorName String?
+  visitorPhone String?
+  visitorCity String?
+  source      String?
   ipAddress   String?
   userAgent   String?
   convertedAt DateTime @default(now())

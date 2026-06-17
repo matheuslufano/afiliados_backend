@@ -25,6 +25,76 @@ function appendReferralCode(url, shortCode) {
   }
 }
 
+function optionalText(value) {
+  const text = String(value || '').trim();
+  return text || null;
+}
+
+function normalizePhone(value) {
+  const phone = String(value || '').replace(/\D/g, '');
+  return phone || null;
+}
+
+function firstRequestValue(req, keys) {
+  for (const key of keys) {
+    const value = req.query?.[key] ?? req.body?.[key];
+
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function visitorDataFromRequest(req) {
+  return {
+    visitorName: optionalText(
+      firstRequestValue(req, ['visitorName', 'name', 'nome'])
+    ),
+    visitorPhone: normalizePhone(
+      firstRequestValue(req, [
+        'visitorPhone',
+        'phone',
+        'telefone',
+        'whatsapp'
+      ])
+    ),
+    visitorCity: optionalText(
+      firstRequestValue(req, ['visitorCity', 'city', 'cidade'])
+    ),
+    source: optionalText(firstRequestValue(req, ['source', 'origem']))
+  };
+}
+
+async function formatLinkResponse(req, link) {
+  const promoLink = buildAffiliateUrl(req, link.shortCode);
+
+  return {
+    id: link.id,
+    name: link.name,
+    originalUrl: link.originalUrl,
+    shortCode: link.shortCode,
+    promoLink,
+    clicks: link.clicks.length,
+    conversions: link.conversions.length,
+    whatsappLink: buildWhatsappTrackingUrl(req, link.shortCode),
+    createdAt: link.createdAt,
+    affiliate: link.affiliate
+      ? {
+          id: link.affiliate.id,
+          name: link.affiliate.name,
+          email: link.affiliate.email,
+          city: link.affiliate.city
+        }
+      : null,
+    qrCode: await QRCode.toDataURL(promoLink, {
+      margin: 1,
+      width: 220
+    })
+  };
+}
+
 async function resolveOptionalAffiliateId(raw) {
   if (raw === undefined || raw === null || raw === '') {
     return { ok: true, id: undefined };
@@ -60,33 +130,7 @@ class LinkController {
       });
 
       const formattedLinks = await Promise.all(
-        links.map(async (link) => {
-          const promoLink = buildAffiliateUrl(req, link.shortCode);
-
-          return {
-            id: link.id,
-            name: link.name,
-            originalUrl: link.originalUrl,
-            shortCode: link.shortCode,
-            promoLink,
-            clicks: link.clicks.length,
-            conversions: link.conversions.length,
-            whatsappLink: buildWhatsappTrackingUrl(req, link.shortCode),
-            createdAt: link.createdAt,
-            affiliate: link.affiliate
-              ? {
-                  id: link.affiliate.id,
-                  name: link.affiliate.name,
-                  email: link.affiliate.email,
-                  city: link.affiliate.city
-                }
-              : null,
-            qrCode: await QRCode.toDataURL(promoLink, {
-              margin: 1,
-              width: 220
-            })
-          };
-        })
+        links.map((link) => formatLinkResponse(req, link))
       );
 
       return res.json(formattedLinks);
@@ -203,6 +247,78 @@ class LinkController {
 
       return res.status(500).json({
         error: 'Erro ao criar link'
+      });
+    }
+  }
+
+  async update(req, res) {
+    try {
+      const id = Number(req.params.id);
+
+      if (!Number.isFinite(id) || id < 1) {
+        return res.status(400).json({
+          error: 'ID do link invalido'
+        });
+      }
+
+      const data = {};
+
+      if (req.body.name !== undefined) {
+        data.name = String(req.body.name || '').trim() || null;
+      }
+
+      const rawUrl =
+        req.body.url !== undefined ? req.body.url : req.body.originalUrl;
+
+      if (rawUrl !== undefined) {
+        const originalUrl = String(rawUrl || '').trim();
+
+        if (!originalUrl) {
+          return res.status(400).json({
+            error: 'URL e obrigatoria'
+          });
+        }
+
+        data.originalUrl = originalUrl;
+      }
+
+      if (req.body.affiliateId !== undefined) {
+        const affiliateResult =
+          await resolveOptionalAffiliateId(req.body.affiliateId);
+
+        if (!affiliateResult.ok) {
+          return res.status(400).json({
+            error: affiliateResult.error
+          });
+        }
+
+        data.affiliateId = affiliateResult.id ?? null;
+      }
+
+      const link = await prisma.link.update({
+        where: {
+          id
+        },
+        data,
+        include: {
+          affiliate: true,
+          clicks: true,
+          conversions: true
+        }
+      });
+
+      return res.json(await formatLinkResponse(req, link));
+    } catch (error) {
+      if (error?.code === 'P2025') {
+        return res.status(404).json({
+          error: 'Link nao encontrado'
+        });
+      }
+
+      console.error(error);
+
+      return res.status(500).json({
+        error: 'Erro ao atualizar link'
       });
     }
   }
@@ -415,6 +531,10 @@ class LinkController {
             type: conversion.type,
             product: conversion.product,
             destination: conversion.destination,
+            visitorName: conversion.visitorName,
+            visitorPhone: conversion.visitorPhone,
+            visitorCity: conversion.visitorCity,
+            source: conversion.source,
             ipAddress: conversion.ipAddress,
             userAgent: conversion.userAgent,
             convertedAt: conversion.convertedAt,
@@ -454,6 +574,7 @@ class LinkController {
       const { shortCode } = req.params;
       const product =
         String(req.query.product || 'Plano Familia Netbox').trim();
+      const visitorData = visitorDataFromRequest(req);
 
       const link = await prisma.link.findUnique({
         where: {
@@ -478,6 +599,7 @@ class LinkController {
           type: 'whatsapp',
           product,
           destination,
+          ...visitorData,
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
           linkId: link.id

@@ -57,7 +57,7 @@ async function runAgainstBaseUrl(baseUrl) {
     assertStatsPayload(before, 'Stats antes do teste');
 
     const whatsappResponse = await fetch(
-      `${baseUrl}/links/${shortCode}/whatsapp?product=Teste%20Automatizado`,
+      `${baseUrl}/links/${shortCode}/whatsapp?product=Teste%20Automatizado&visitorName=Cliente%20Teste&visitorPhone=(63)%2099999-0000&visitorCity=Palmas&source=teste-automatizado`,
       {
         redirect: 'manual',
         headers: {
@@ -69,6 +69,7 @@ async function runAgainstBaseUrl(baseUrl) {
     assertStatsPayload(after, 'Stats depois do teste');
 
     const increment = after.totalConversions - before.totalConversions;
+    const conversion = after.conversions[0];
 
     console.log(
       JSON.stringify(
@@ -81,7 +82,11 @@ async function runAgainstBaseUrl(baseUrl) {
           redirectLocation: whatsappResponse.headers.get('location'),
           beforeConversions: before.totalConversions,
           afterConversions: after.totalConversions,
-          increment
+          increment,
+          visitorName: conversion?.visitorName,
+          visitorPhone: conversion?.visitorPhone,
+          visitorCity: conversion?.visitorCity,
+          source: conversion?.source
         },
         null,
         2
@@ -94,6 +99,15 @@ async function runAgainstBaseUrl(baseUrl) {
 
     if (whatsappResponse.status < 300 || whatsappResponse.status >= 400) {
       throw new Error(`Esperava redirect 3xx, recebeu ${whatsappResponse.status}`);
+    }
+
+    if (
+      conversion?.visitorName !== 'Cliente Teste' ||
+      conversion?.visitorPhone !== '63999990000' ||
+      conversion?.visitorCity !== 'Palmas' ||
+      conversion?.source !== 'teste-automatizado'
+    ) {
+      throw new Error('Dados do visitante nao foram salvos na conversao');
     }
   } finally {
     const deleted = await fetch(`${baseUrl}/links/${link.id}`, {

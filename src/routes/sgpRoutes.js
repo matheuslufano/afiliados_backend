@@ -4,6 +4,16 @@ const sgpController = require('../controllers/sgpController');
 
 const router = express.Router();
 
+router.get(
+  '/integrations/sgp/status',
+  (req, res) => sgpController.status(req, res)
+);
+
+router.get(
+  '/integrations/sgp/clientes',
+  (req, res) => sgpController.customer(req, res)
+);
+
 router.post(
   '/integrations/sgp/sale',
   (req, res) => sgpController.sale(req, res)

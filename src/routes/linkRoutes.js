@@ -20,6 +20,11 @@ router.post(
   linkController.create
 );
 
+router.put(
+  '/links/:id',
+  linkController.update
+);
+
 router.delete(
   '/links/:id',
   linkController.delete
