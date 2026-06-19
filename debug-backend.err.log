@@ -1,0 +1,16 @@
+PrismaClientInitializationError: 
+Invalid `prisma.$queryRaw()` invocation:
+
+
+Can't reach database server at `database-afiliados-backend-netbox-afiliados-backend-2026.e.aivencloud.com:25185`
+
+Please make sure your database server is running at `database-afiliados-backend-netbox-afiliados-backend-2026.e.aivencloud.com:25185`.
+    at ei.handleRequestError (D:\programas\Projetos de programação\Afiliados Netbox\afiliados-backend\node_modules\@prisma\client\runtime\library.js:121:7568)
+    at ei.handleAndLogRequestError (D:\programas\Projetos de programação\Afiliados Netbox\afiliados-backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\programas\Projetos de programação\Afiliados Netbox\afiliados-backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\programas\Projetos de programação\Afiliados Netbox\afiliados-backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async D:\programas\Projetos de programação\Afiliados Netbox\afiliados-backend\src\app.js:44:5 {
+  clientVersion: '6.19.3',
+  errorCode: undefined,
+  retryable: undefined
+}
