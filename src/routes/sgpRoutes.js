@@ -14,6 +14,11 @@ router.get(
   (req, res) => sgpController.customer(req, res)
 );
 
+router.get(
+  '/integrations/sgp/clientes/list',
+  (req, res) => sgpController.customers(req, res)
+);
+
 router.post(
   '/integrations/sgp/sale',
   (req, res) => sgpController.sale(req, res)

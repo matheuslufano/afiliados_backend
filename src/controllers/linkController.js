@@ -12,6 +12,9 @@ const {
 const {
   publishRealtimeEvent
 } = require('../utils/realtimeEvents');
+const {
+  collectVisitorTrackingData
+} = require('../utils/visitorTracking');
 
 function appendReferralCode(url, shortCode) {
   try {
@@ -33,6 +36,11 @@ function optionalText(value) {
 function normalizePhone(value) {
   const phone = String(value || '').replace(/\D/g, '');
   return phone || null;
+}
+
+function normalizeDocument(value) {
+  const document = String(value || '').replace(/\D/g, '');
+  return document || null;
 }
 
 function firstRequestValue(req, keys) {
@@ -58,6 +66,16 @@ function visitorDataFromRequest(req) {
         'phone',
         'telefone',
         'whatsapp'
+      ])
+    ),
+    visitorDocument: normalizeDocument(
+      firstRequestValue(req, [
+        'visitorDocument',
+        'document',
+        'documento',
+        'cpf',
+        'cnpj',
+        'cpfcnpj'
       ])
     ),
     visitorCity: optionalText(
@@ -341,8 +359,7 @@ class LinkController {
 
       const click = await prisma.click.create({
         data: {
-          ipAddress: req.ip,
-          userAgent: req.headers['user-agent'],
+          ...collectVisitorTrackingData(req),
           linkId: link.id
         }
       });
@@ -466,6 +483,99 @@ class LinkController {
     }
   }
 
+  async updateConversion(req, res) {
+    try {
+      const id = Number(req.params.id);
+
+      if (!Number.isFinite(id) || id < 1) {
+        return res.status(400).json({
+          error: 'ID da conversao invalido'
+        });
+      }
+
+      const data = {};
+
+      if (req.body.visitorName !== undefined) {
+        data.visitorName = optionalText(req.body.visitorName);
+      }
+
+      if (req.body.visitorPhone !== undefined) {
+        data.visitorPhone = normalizePhone(req.body.visitorPhone);
+      }
+
+      if (req.body.visitorDocument !== undefined) {
+        data.visitorDocument = normalizeDocument(req.body.visitorDocument);
+      }
+
+      if (req.body.visitorCity !== undefined) {
+        data.visitorCity = optionalText(req.body.visitorCity);
+      }
+
+      if (req.body.product !== undefined) {
+        data.product = optionalText(req.body.product);
+      }
+
+      if (req.body.source !== undefined) {
+        data.source = optionalText(req.body.source);
+      }
+
+      const conversion = await prisma.conversion.update({
+        where: {
+          id
+        },
+        data
+      });
+
+      return res.json(conversion);
+    } catch (error) {
+      if (error?.code === 'P2025') {
+        return res.status(404).json({
+          error: 'Conversao nao encontrada'
+        });
+      }
+
+      console.error(error);
+
+      return res.status(500).json({
+        error: 'Erro ao atualizar conversao'
+      });
+    }
+  }
+
+  async deleteConversion(req, res) {
+    try {
+      const id = Number(req.params.id);
+
+      if (!Number.isFinite(id) || id < 1) {
+        return res.status(400).json({
+          error: 'ID da conversao invalido'
+        });
+      }
+
+      await prisma.conversion.delete({
+        where: {
+          id
+        }
+      });
+
+      return res.json({
+        message: 'Conversao apagada com sucesso'
+      });
+    } catch (error) {
+      if (error?.code === 'P2025') {
+        return res.status(404).json({
+          error: 'Conversao nao encontrada'
+        });
+      }
+
+      console.error(error);
+
+      return res.status(500).json({
+        error: 'Erro ao apagar conversao'
+      });
+    }
+  }
+
   async affiliateStats(req, res) {
     try {
       const { id } = req.params;
@@ -533,10 +643,28 @@ class LinkController {
             destination: conversion.destination,
             visitorName: conversion.visitorName,
             visitorPhone: conversion.visitorPhone,
+            visitorDocument: conversion.visitorDocument,
             visitorCity: conversion.visitorCity,
             source: conversion.source,
             ipAddress: conversion.ipAddress,
             userAgent: conversion.userAgent,
+            referrer: conversion.referrer,
+            utmSource: conversion.utmSource,
+            utmMedium: conversion.utmMedium,
+            utmCampaign: conversion.utmCampaign,
+            utmTerm: conversion.utmTerm,
+            utmContent: conversion.utmContent,
+            deviceType: conversion.deviceType,
+            browser: conversion.browser,
+            operatingSystem: conversion.operatingSystem,
+            platform: conversion.platform,
+            language: conversion.language,
+            geoCountry: conversion.geoCountry,
+            geoRegion: conversion.geoRegion,
+            geoCity: conversion.geoCity,
+            timezone: conversion.timezone,
+            screenWidth: conversion.screenWidth,
+            screenHeight: conversion.screenHeight,
             convertedAt: conversion.convertedAt,
             linkId: link.id,
             linkName: link.name,
@@ -600,8 +728,7 @@ class LinkController {
           product,
           destination,
           ...visitorData,
-          ipAddress: req.ip,
-          userAgent: req.headers['user-agent'],
+          ...collectVisitorTrackingData(req),
           linkId: link.id
         }
       });
@@ -613,6 +740,14 @@ class LinkController {
         product,
         convertedAt: conversion.convertedAt
       });
+
+      if (req.method === 'POST') {
+        return res.status(201).json({
+          conversionId: conversion.id,
+          destination,
+          convertedAt: conversion.convertedAt
+        });
+      }
 
       return res.redirect(destination);
     } catch (error) {

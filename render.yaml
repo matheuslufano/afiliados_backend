@@ -23,3 +23,13 @@ services:
         value: "55008006022732"
       - key: WHATSAPP_MESSAGE
         value: Tenho interesse no Plano Familia Netbox.
+      - key: SGP_BASE_URL
+        sync: false
+      - key: SGP_APP
+        sync: false
+      - key: SGP_TOKEN
+        sync: false
+      - key: SGP_WEBHOOK_SECRET
+        sync: false
+      - key: SGP_DEFAULT_MODE
+        value: precadastro

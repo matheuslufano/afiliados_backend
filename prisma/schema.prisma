@@ -61,27 +61,63 @@ model Link {
 }
 
 model Click {
-  id         Int      @id @default(autoincrement())
-  ipAddress  String?
-  userAgent  String?
-  clickedAt  DateTime @default(now())
+  id              Int      @id @default(autoincrement())
+  ipAddress       String?
+  userAgent       String?
+  referrer        String?
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+  utmTerm         String?
+  utmContent      String?
+  source          String?
+  deviceType      String?
+  browser         String?
+  operatingSystem String?
+  platform        String?
+  language        String?
+  geoCountry      String?
+  geoRegion       String?
+  geoCity         String?
+  timezone        String?
+  screenWidth     Int?
+  screenHeight    Int?
+  clickedAt       DateTime @default(now())
 
   linkId Int
   link   Link @relation(fields: [linkId], references: [id])
 }
 
 model Conversion {
-  id          Int      @id @default(autoincrement())
-  type        String   @default("whatsapp")
-  product     String?
-  destination String?
-  visitorName String?
-  visitorPhone String?
-  visitorCity String?
-  source      String?
-  ipAddress   String?
-  userAgent   String?
-  convertedAt DateTime @default(now())
+  id              Int      @id @default(autoincrement())
+  type            String   @default("whatsapp")
+  product         String?
+  destination     String?
+  visitorName     String?
+  visitorPhone    String?
+  visitorDocument String?
+  visitorCity     String?
+  source          String?
+  ipAddress       String?
+  userAgent       String?
+  referrer        String?
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+  utmTerm         String?
+  utmContent      String?
+  deviceType      String?
+  browser         String?
+  operatingSystem String?
+  platform        String?
+  language        String?
+  geoCountry      String?
+  geoRegion       String?
+  geoCity         String?
+  timezone        String?
+  screenWidth     Int?
+  screenHeight    Int?
+  convertedAt     DateTime @default(now())
 
   linkId Int
   link   Link @relation(fields: [linkId], references: [id])

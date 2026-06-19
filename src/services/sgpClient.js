@@ -222,18 +222,28 @@ async function requestFirstSuccessful(attempts) {
   throw lastError;
 }
 
-function searchCustomer(document) {
-  const cpfcnpj = String(document || '').replace(/\D/g, '');
+function searchCustomer(search) {
+  const rawSearch = String(search || '').trim();
+  const digits = rawSearch.replace(/\D/g, '');
+  const cpfcnpj = digits.length >= 11 ? digits : '';
 
-  if (!cpfcnpj) {
-    const error = new Error('Informe CPF ou CNPJ para consultar no SGP.');
+  if (!rawSearch) {
+    const error = new Error('Informe CPF/CNPJ, nome, telefone ou cidade para consultar no SGP.');
     error.status = 400;
     throw error;
   }
 
-  const payload = withCredentials({
-    cpfcnpj
-  });
+  const searchPayload = cpfcnpj
+    ? { cpfcnpj }
+    : {
+        busca: rawSearch,
+        nome: rawSearch,
+        telefone: digits || undefined,
+        celular: digits || undefined,
+        cidade: rawSearch
+      };
+
+  const payload = withCredentials(pruneEmptyValues(searchPayload));
 
   return requestFirstSuccessful([
     {
@@ -253,8 +263,89 @@ function searchCustomer(document) {
     {
       path: '/api/ura/consultacliente',
       body: payload
+    },
+    {
+      path: '/api/cliente/',
+      bodyMode: 'form',
+      body: payload
+    },
+    {
+      path: '/api/cliente',
+      bodyMode: 'form',
+      body: payload
+    },
+    {
+      path: '/api/cliente/',
+      body: payload
+    },
+    {
+      path: '/api/cliente',
+      body: payload
     }
   ]);
+}
+
+function listCustomers() {
+  const payload = withCredentials({});
+
+  return requestFirstSuccessful([
+    {
+      path: '/api/ura/consultacliente/',
+      bodyMode: 'form',
+      body: payload
+    },
+    {
+      path: '/api/ura/consultacliente',
+      bodyMode: 'form',
+      body: payload
+    },
+    {
+      path: '/api/cliente/',
+      method: 'GET',
+      query: payload
+    },
+    {
+      path: '/api/cliente',
+      method: 'GET',
+      query: payload
+    },
+    {
+      path: '/api/clientes/',
+      method: 'GET',
+      query: payload
+    },
+    {
+      path: '/api/clientes',
+      method: 'GET',
+      query: payload
+    },
+    {
+      path: '/api/cliente/',
+      bodyMode: 'form',
+      body: payload
+    },
+    {
+      path: '/api/cliente',
+      bodyMode: 'form',
+      body: payload
+    },
+    {
+      path: '/api/clientes/',
+      bodyMode: 'form',
+      body: payload
+    },
+    {
+      path: '/api/clientes',
+      bodyMode: 'form',
+      body: payload
+    }
+  ]).catch((error) => {
+    if ([400, 404, 405, 415].includes(error.status)) {
+      return [];
+    }
+
+    throw error;
+  });
 }
 
 module.exports = {
@@ -263,6 +354,7 @@ module.exports = {
   createCrmContractByCpfCnpj,
   createPreCadastro,
   getStatus,
+  listCustomers,
   searchCustomer,
   normalizePersonType
 };

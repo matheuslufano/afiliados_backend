@@ -108,6 +108,11 @@ function normalizePhone(value) {
   return phone || null;
 }
 
+function normalizeDocument(value) {
+  const document = String(value || '').replace(/\D/g, '');
+  return document || null;
+}
+
 function firstValueFromPayload(payload, keys) {
   for (const key of keys) {
     const value = payload?.[key];
@@ -136,6 +141,22 @@ function visitorDataFromBody(req) {
         'whatsapp'
       ]) ||
         firstValueFromPayload(customer, ['telefone', 'celular', 'whatsapp'])
+    ),
+    visitorDocument: normalizeDocument(
+      firstValueFromPayload(req.body, [
+        'visitorDocument',
+        'document',
+        'documento',
+        'cpf',
+        'cnpj',
+        'cpfcnpj'
+      ]) ||
+        firstValueFromPayload(customer, [
+          'cpfcnpj',
+          'cpf',
+          'cnpj',
+          'documento'
+        ])
     ),
     visitorCity: optionalText(
       firstValueFromPayload(req.body, ['visitorCity', 'city', 'cidade']) ||
@@ -562,10 +583,100 @@ function normalizeSgpCustomer(result, document) {
     document:
       firstText(source, ['cpfcnpj', 'cpf', 'cnpj', 'documento']) ||
       document,
+    phone:
+      firstText(source, [
+        'telefone',
+        'fone',
+        'celular',
+        'whatsapp',
+        'numero',
+        'telefone_celular',
+        'contato'
+      ]) || null,
+    city:
+      firstText(source, [
+        'cidade',
+        'municipio',
+        'city',
+        'cidade_nome',
+        'nome_cidade'
+      ]) || null,
     status: active === true ? 'Ativo' : active === false ? 'Inativo' : status.label,
     active,
     contracts,
     raw: result
+  };
+}
+
+function customersFromResult(result) {
+  if (Array.isArray(result)) {
+    return result;
+  }
+
+  const found = findArrayByKey(
+    result,
+    new Set([
+      'clientes',
+      'cliente',
+      'results',
+      'resultados',
+      'data',
+      'dados'
+    ].map(normalizeKey))
+  );
+
+  if (found.length > 0) {
+    return found;
+  }
+
+  return result && typeof result === 'object' ? [result] : [];
+}
+
+function normalizeSgpCustomerList(result) {
+  return customersFromResult(result)
+    .map((item) => normalizeSgpCustomer(item, ''))
+    .filter((customer) => {
+      const documentDigits = String(customer.document || '').replace(/\D/g, '');
+
+      return Boolean(
+        customer.id ||
+          customer.name ||
+          documentDigits ||
+          customer.phone ||
+          customer.city ||
+          customer.contracts.length > 0
+      );
+    });
+}
+
+function summarizeCustomers(customers) {
+  const activeCustomers = customers.filter((customer) => customer.active === true);
+  const inactiveCustomers = customers.filter((customer) => customer.active === false);
+  const unknownCustomers = customers.filter((customer) => customer.active === null);
+  const byCityMap = new Map();
+
+  customers.forEach((customer) => {
+    const city = customer.city || 'Cidade nao informada';
+    const current = byCityMap.get(city) || {
+      city,
+      total: 0,
+      active: 0
+    };
+
+    current.total += 1;
+    if (customer.active === true) {
+      current.active += 1;
+    }
+
+    byCityMap.set(city, current);
+  });
+
+  return {
+    total: customers.length,
+    active: activeCustomers.length,
+    inactive: inactiveCustomers.length,
+    unknown: unknownCustomers.length,
+    byCity: Array.from(byCityMap.values()).sort((a, b) => b.total - a.total)
   };
 }
 
@@ -580,7 +691,15 @@ class SgpController {
         req.query?.document ||
         req.query?.cpfcnpj ||
         req.query?.cpf ||
-        req.query?.cnpj;
+        req.query?.cnpj ||
+        req.query?.query ||
+        req.query?.search ||
+        req.query?.nome ||
+        req.query?.name ||
+        req.query?.telefone ||
+        req.query?.phone ||
+        req.query?.cidade ||
+        req.query?.city;
 
       const result = await sgpClient.searchCustomer(document);
 
@@ -591,6 +710,22 @@ class SgpController {
       });
     } catch (error) {
       return handleError(res, error, 'Erro ao consultar cliente no SGP');
+    }
+  }
+
+  async customers(req, res) {
+    try {
+      const result = await sgpClient.listCustomers();
+      const customers = normalizeSgpCustomerList(result);
+
+      return res.json({
+        provider: 'sgp',
+        customers,
+        summary: summarizeCustomers(customers),
+        result
+      });
+    } catch (error) {
+      return handleError(res, error, 'Erro ao listar clientes no SGP');
     }
   }
 

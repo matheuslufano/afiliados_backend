@@ -30,7 +30,22 @@ router.delete(
   linkController.delete
 );
 
+router.put(
+  '/conversions/:id',
+  linkController.updateConversion
+);
+
+router.delete(
+  '/conversions/:id',
+  linkController.deleteConversion
+);
+
 router.get(
+  '/links/:shortCode/whatsapp',
+  linkController.whatsapp
+);
+
+router.post(
   '/links/:shortCode/whatsapp',
   linkController.whatsapp
 );
