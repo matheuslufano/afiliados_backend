@@ -6,7 +6,7 @@ const chatmixWebhookController = require(
 
 const router = express.Router();
 
-router.post(
+router.all(
   '/webhooks/chatmix',
   chatmixWebhookController.receive
 );

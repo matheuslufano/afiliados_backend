@@ -175,6 +175,71 @@ function firstStringByKey(body, keys) {
   return null;
 }
 
+function optionalText(value) {
+  const text = String(value || '').trim();
+  return text ? text.slice(0, 255) : null;
+}
+
+function normalizePhone(value) {
+  const phone = String(value || '').replace(/\D/g, '');
+  return phone || null;
+}
+
+function normalizeDocument(value) {
+  const document = String(value || '').replace(/\D/g, '');
+  return document || null;
+}
+
+function requestPayload(req) {
+  return {
+    body: req.body || {},
+    query: req.query || {}
+  };
+}
+
+function visitorDataFromPayload(payload) {
+  return {
+    visitorName: optionalText(
+      firstStringByKey(payload, [
+        'visitorName',
+        'name',
+        'nome',
+        'cliente',
+        'customerName',
+        'contactName'
+      ])
+    ),
+    visitorPhone: normalizePhone(
+      firstStringByKey(payload, [
+        'visitorPhone',
+        'phone',
+        'telefone',
+        'celular',
+        'whatsapp',
+        'number',
+        'numero'
+      ])
+    ),
+    visitorDocument: normalizeDocument(
+      firstStringByKey(payload, [
+        'visitorDocument',
+        'document',
+        'documento',
+        'cpf',
+        'cnpj',
+        'cpfcnpj',
+        'cpfCnpj'
+      ])
+    ),
+    visitorCity: optionalText(
+      firstStringByKey(payload, ['visitorCity', 'city', 'cidade'])
+    ),
+    source: optionalText(
+      firstStringByKey(payload, ['source', 'origem', 'channel', 'canal'])
+    )
+  };
+}
+
 class ChatmixWebhookController {
   async receive(req, res) {
     try {
@@ -184,7 +249,8 @@ class ChatmixWebhookController {
         });
       }
 
-      const shortCode = extractShortCode(req.body);
+      const payload = requestPayload(req);
+      const shortCode = extractShortCode(payload);
 
       if (!shortCode) {
         return res.json({
@@ -207,21 +273,25 @@ class ChatmixWebhookController {
         });
       }
 
-      const eventName = firstStringByKey(req.body, [
+      const eventName = firstStringByKey(payload, [
         'event',
         'eventName',
         'type',
-        'status'
+        'status',
+        'action',
+        'acao'
       ]);
-      const product = firstStringByKey(req.body, [
+      const product = firstStringByKey(payload, [
         'product',
         'produto',
         'campaign',
         'campanha',
         'template',
-        'templateName'
+        'templateName',
+        'flow',
+        'fluxo'
       ]);
-      const destination = firstStringByKey(req.body, [
+      const destination = firstStringByKey(payload, [
         'phone',
         'telefone',
         'whatsapp',
@@ -231,12 +301,18 @@ class ChatmixWebhookController {
         'from',
         'to'
       ]);
+      const visitorData = visitorDataFromPayload(payload);
 
       const conversion = await prisma.conversion.create({
         data: {
           type: eventName ? `chatmix:${eventName}` : 'chatmix_webhook',
           product: product || 'Chatmix webhook',
           destination,
+          visitorName: visitorData.visitorName,
+          visitorPhone: visitorData.visitorPhone,
+          visitorDocument: visitorData.visitorDocument,
+          visitorCity: visitorData.visitorCity,
+          source: visitorData.source || 'chatmix',
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
           linkId: link.id
@@ -247,7 +323,8 @@ class ChatmixWebhookController {
         status: 'received',
         conversionId: conversion.id,
         linkId: link.id,
-        shortCode
+        shortCode,
+        visitorDocument: conversion.visitorDocument
       });
     } catch (error) {
       console.error(error);

@@ -1,0 +1,67 @@
+name: Deploy backend to VM
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend-vm
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy on VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          password: ${{ secrets.VM_PASSWORD }}
+          script_stop: true
+          script: |
+            set -eu
+
+            APP_ROOT="/home/netbox/afiliados-backend"
+            RELEASES_DIR="$APP_ROOT/releases"
+            RELEASE="$RELEASES_DIR/${{ github.sha }}"
+            REPO_URL="https://github.com/${{ github.repository }}.git"
+
+            mkdir -p "$RELEASES_DIR"
+            rm -rf "$RELEASE"
+
+            git clone --depth 1 --branch main "$REPO_URL" "$RELEASE"
+
+            if [ ! -f "$APP_ROOT/current/.env.docker.runtime" ]; then
+              echo "Missing $APP_ROOT/current/.env.docker.runtime"
+              exit 1
+            fi
+
+            cp "$APP_ROOT/current/.env.docker.runtime" "$RELEASE/.env.docker.runtime"
+
+            cd "$RELEASE"
+
+            docker build -t afiliados-backend:${{ github.sha }} .
+
+            docker stop afiliados-backend || true
+            docker rm afiliados-backend || true
+
+            docker run -d \
+              --name afiliados-backend \
+              --restart unless-stopped \
+              --network afiliados-net \
+              --env-file .env.docker.runtime \
+              -p 3001:3001 \
+              afiliados-backend:${{ github.sha }}
+
+            ln -sfn "$RELEASE" "$APP_ROOT/current"
+
+            sleep 5
+            curl -fsS http://127.0.0.1:3001/health
+
+            ls -1dt "$RELEASES_DIR"/* 2>/dev/null \
+              | tail -n +6 \
+              | xargs -r rm -rf
