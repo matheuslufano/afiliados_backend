@@ -97,10 +97,10 @@ function collectStrings(value, results = [], depth = 0) {
   return results;
 }
 
-function codeFromText(text, allowLooseMatch = false) {
+function codeFromText(text, allowLooseMatch = false, allowBareMatch = true) {
   const value = String(text || '').trim();
 
-  if (new RegExp(`^${CODE_PATTERN}$`, 'i').test(value)) {
+  if (allowBareMatch && new RegExp(`^${CODE_PATTERN}$`, 'i').test(value)) {
     return value.toLowerCase();
   }
 
@@ -151,7 +151,7 @@ function extractShortCode(body) {
   }
 
   for (const value of collectStrings(body)) {
-    const code = codeFromText(value);
+    const code = codeFromText(value, false, false);
     if (code) {
       return code;
     }
@@ -188,6 +188,42 @@ function normalizePhone(value) {
 function normalizeDocument(value) {
   const document = String(value || '').replace(/\D/g, '');
   return document || null;
+}
+
+function chatmixChannelName(payload) {
+  return optionalText(payload?.body?.channel_data?.name);
+}
+
+function chatmixAttendanceId(payload) {
+  const id = payload?.body?.attendance_id;
+  return id === undefined || id === null ? null : String(id).trim() || null;
+}
+
+function parseChannelMap() {
+  const raw = String(process.env.CHATMIX_CHANNEL_LINK_MAP || '').trim();
+
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch {
+    console.warn('CHATMIX_CHANNEL_LINK_MAP invalido. Use JSON: {"Canal":"shortCode"}');
+    return {};
+  }
+}
+
+function shortCodeFromChatmixChannel(payload) {
+  const channelName = chatmixChannelName(payload);
+  const map = parseChannelMap();
+  const mapped = channelName ? map[channelName] : null;
+
+  return codeFromText(mapped, true) ||
+    codeFromText(process.env.CHATMIX_DEFAULT_SHORT_CODE, true);
 }
 
 function requestPayload(req) {
@@ -240,6 +276,66 @@ function visitorDataFromPayload(payload) {
   };
 }
 
+function chatmixVisitorData(payload) {
+  const body = payload.body || {};
+  const data = body.data || {};
+  const clientData = body.client_data || {};
+  const channelData = body.channel_data || {};
+
+  const genericData = visitorDataFromPayload(payload);
+
+  return {
+    visitorName: optionalText(clientData.name) || genericData.visitorName,
+    visitorPhone: normalizePhone(clientData.user) ||
+      normalizePhone(clientData.validate?.user) ||
+      genericData.visitorPhone,
+    visitorDocument: normalizeDocument(
+      data.CPF ||
+        data.cpf ||
+        data.CNPJ ||
+        data.cnpj ||
+        data.documento ||
+        data.document
+    ) || genericData.visitorDocument,
+    visitorCity: optionalText(data.CIDADE || data.cidade || data.city) ||
+      genericData.visitorCity,
+    source: optionalText(channelData.name) ||
+      optionalText(channelData.type) ||
+      genericData.source ||
+      'chatmix'
+  };
+}
+
+function recentConversionWhere(visitorData, linkId) {
+  const or = [];
+
+  if (visitorData.visitorPhone) {
+    or.push({
+      visitorPhone: visitorData.visitorPhone
+    });
+  }
+
+  if (visitorData.visitorDocument) {
+    or.push({
+      visitorDocument: visitorData.visitorDocument
+    });
+  }
+
+  if (!or.length) {
+    return null;
+  }
+
+  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+
+  return {
+    ...(linkId && { linkId }),
+    convertedAt: {
+      gte: since
+    },
+    OR: or
+  };
+}
+
 class ChatmixWebhookController {
   async receive(req, res) {
     try {
@@ -250,27 +346,25 @@ class ChatmixWebhookController {
       }
 
       const payload = requestPayload(req);
-      const shortCode = extractShortCode(payload);
+      const visitorData = chatmixVisitorData(payload);
+      const shortCode =
+        extractShortCode(payload) || shortCodeFromChatmixChannel(payload);
+      let link = null;
 
-      if (!shortCode) {
-        return res.json({
-          status: 'ignored',
-          reason: 'shortCode not found'
+      if (shortCode) {
+        link = await prisma.link.findUnique({
+          where: {
+            shortCode
+          }
         });
-      }
 
-      const link = await prisma.link.findUnique({
-        where: {
-          shortCode
+        if (!link) {
+          return res.json({
+            status: 'ignored',
+            reason: 'link not found',
+            shortCode
+          });
         }
-      });
-
-      if (!link) {
-        return res.json({
-          status: 'ignored',
-          reason: 'link not found',
-          shortCode
-        });
       }
 
       const eventName = firstStringByKey(payload, [
@@ -301,29 +395,69 @@ class ChatmixWebhookController {
         'from',
         'to'
       ]);
-      const visitorData = visitorDataFromPayload(payload);
+      const recentWhere = recentConversionWhere(visitorData, link?.id);
+      const existingConversion = recentWhere
+        ? await prisma.conversion.findFirst({
+            where: recentWhere,
+            orderBy: {
+              convertedAt: 'desc'
+            }
+          })
+        : null;
 
-      const conversion = await prisma.conversion.create({
-        data: {
-          type: eventName ? `chatmix:${eventName}` : 'chatmix_webhook',
-          product: product || 'Chatmix webhook',
-          destination,
-          visitorName: visitorData.visitorName,
+      if (!link && existingConversion) {
+        link = await prisma.link.findUnique({
+          where: {
+            id: existingConversion.linkId
+          }
+        });
+      }
+
+      if (!link) {
+        return res.json({
+          status: 'ignored',
+          reason: 'link not resolved',
+          attendanceId: chatmixAttendanceId(payload),
           visitorPhone: visitorData.visitorPhone,
-          visitorDocument: visitorData.visitorDocument,
-          visitorCity: visitorData.visitorCity,
-          source: visitorData.source || 'chatmix',
-          ipAddress: req.ip,
-          userAgent: req.headers['user-agent'],
-          linkId: link.id
-        }
-      });
+          visitorDocument: visitorData.visitorDocument
+        });
+      }
 
-      return res.status(201).json({
-        status: 'received',
+      const conversionData = {
+        type: eventName ? `chatmix:${eventName}` : 'chatmix_webhook',
+        product: product || 'Chatmix webhook',
+        destination,
+        visitorName: visitorData.visitorName,
+        visitorPhone: visitorData.visitorPhone,
+        visitorDocument: visitorData.visitorDocument,
+        visitorCity: visitorData.visitorCity,
+        source: visitorData.source || 'chatmix',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
+      };
+
+      const conversion = existingConversion
+        ? await prisma.conversion.update({
+            where: {
+              id: existingConversion.id
+            },
+            data: conversionData
+          })
+        : await prisma.conversion.create({
+            data: {
+              ...conversionData,
+              linkId: link.id
+            }
+          });
+
+      return res.status(existingConversion ? 200 : 201).json({
+        status: existingConversion ? 'updated' : 'received',
+        attendanceId: chatmixAttendanceId(payload),
         conversionId: conversion.id,
         linkId: link.id,
-        shortCode,
+        shortCode: link.shortCode,
+        visitorName: conversion.visitorName,
+        visitorPhone: conversion.visitorPhone,
         visitorDocument: conversion.visitorDocument
       });
     } catch (error) {

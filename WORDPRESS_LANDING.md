@@ -7,11 +7,11 @@ backend e envia o visitante para a landing publica no WordPress.
 
 1. O painel cria um link com destino para a landing WordPress.
 2. O afiliado divulga o link gerado pelo backend:
-   `https://SEU-BACKEND.com/r/abc123`
+   `http://72.62.8.85:3001/r/abc123`
 3. Ao abrir esse link, o backend registra o clique e redireciona para:
    `https://SUA-LANDING.com/express?ref=abc123`
 4. O botao de WhatsApp da landing le `ref=abc123` e aponta para:
-   `https://SEU-BACKEND.com/links/abc123/whatsapp?product=Plano%20Familia%20Netbox`
+   `http://72.62.8.85:3001/links/abc123/whatsapp?product=Plano%20Familia%20Netbox`
 5. O backend registra a conversao e redireciona para o WhatsApp.
 
 ## Variaveis apos migrar hospedagem
@@ -19,7 +19,7 @@ backend e envia o visitante para a landing publica no WordPress.
 No backend, atualize a URL publica do backend e a URL da landing:
 
 ```env
-APP_URL="https://SEU-BACKEND-NOVO.com"
+APP_URL="http://72.62.8.85:3001"
 LANDING_PAGE_URL="https://SUA-LANDING-WORDPRESS.com/express"
 WHATSAPP_NUMBER=55008006022732
 WHATSAPP_MESSAGE="Tenho interesse no Plano Familia Netbox."
@@ -41,7 +41,7 @@ location / {
 No frontend administrativo:
 
 ```env
-NEXT_PUBLIC_API_URL=https://SEU-BACKEND-NOVO.com
+NEXT_PUBLIC_API_URL=http://72.62.8.85:3001
 NEXT_PUBLIC_LANDING_PAGE_URL=https://SUA-LANDING-WORDPRESS.com/express
 ```
 
@@ -56,12 +56,11 @@ whatsapp-conversion
 ```
 
 Depois cole este script em um bloco "HTML personalizado" da landing ou em um
-campo de scripts do tema. Troque apenas a URL do `script src` para a URL publica
-do backend novo.
+campo de scripts do tema.
 
 ```html
 <script
-  src="https://SEU-BACKEND-NOVO.com/wordpress/landing.js"
+  src="http://72.62.8.85:3001/wordpress/landing.js"
   data-product="Plano Familia Netbox"
   defer
 ></script>
@@ -75,7 +74,7 @@ Se preferir usar outra classe no botao, informe o seletor no script:
 
 ```html
 <script
-  src="https://SEU-BACKEND-NOVO.com/wordpress/landing.js"
+  src="http://72.62.8.85:3001/wordpress/landing.js"
   data-button-selector=".minha-classe-do-whatsapp"
   data-product="Plano Familia Netbox"
   defer
@@ -84,8 +83,8 @@ Se preferir usar outra classe no botao, informe o seletor no script:
 
 ## Checklist rapido
 
-1. `https://SEU-BACKEND-NOVO.com/health` deve responder `status: online`.
-2. `https://SEU-BACKEND-NOVO.com/wordpress/landing.js` deve abrir um arquivo JavaScript.
+1. `http://72.62.8.85:3001/health` deve responder `status: online`.
+2. `http://72.62.8.85:3001/wordpress/landing.js` deve abrir um arquivo JavaScript.
 3. Um link `/r/CODIGO` deve redirecionar para a landing com `?ref=CODIGO`.
 4. Na landing com `?ref=CODIGO`, o botao deve apontar para `/links/CODIGO/whatsapp`.
 5. Divulgue sempre o link do backend (`/r/CODIGO`), nunca a URL direta do WordPress.

@@ -16,7 +16,7 @@ postgresql://avnadmin:SENHA@HOST.aivencloud.com:PORT/defaultdb?sslmode=require
 DATABASE_URL="postgresql://avnadmin:SENHA@HOST.aivencloud.com:PORT/defaultdb?sslmode=require"
 ```
 
-4. Deixe o `.env` atual apontando para o banco de origem, hoje Railway.
+4. Deixe o `.env` atual apontando para o banco de origem atual da VPS.
 5. Rode a migracao:
 
 ```bash
@@ -44,7 +44,7 @@ npm run db:migrate:aiven -- --schema-only
 3. Teste:
 
 ```bash
-curl https://SUA-API/health
+curl http://72.62.8.85:3001/health
 ```
 
 Se retornar `status: online` e `database: ok`, o backend esta conectado na Aiven.
