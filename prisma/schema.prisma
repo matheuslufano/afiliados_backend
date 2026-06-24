@@ -122,3 +122,28 @@ model Conversion {
   linkId Int
   link   Link @relation(fields: [linkId], references: [id])
 }
+
+model WebhookLog {
+  id              Int      @id @default(autoincrement())
+  provider        String
+  attendanceId    String?
+  channelName     String?
+  channelType     String?
+  eventStatus     String?
+  shortCode       String?
+  conversionId    Int?
+  linkId          Int?
+  visitorName     String?
+  visitorPhone    String?
+  visitorDocument String?
+  ipAddress       String?
+  userAgent       String?
+  raw             Json
+  query           Json
+  result          Json
+  receivedAt      DateTime @default(now())
+
+  @@index([provider, receivedAt])
+  @@index([attendanceId])
+  @@index([shortCode])
+}

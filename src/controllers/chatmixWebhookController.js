@@ -251,8 +251,9 @@ function sanitizedQuery(query) {
   }, {});
 }
 
-function publishChatmixWebhookEvent(payload, result) {
-  publishRealtimeEvent('chatmix-webhook', {
+function chatmixWebhookEventPayload(payload, result, logId = null) {
+  return {
+    id: logId,
     receivedAt: new Date().toISOString(),
     attendanceId: chatmixAttendanceId(payload),
     channel: {
@@ -262,7 +263,59 @@ function publishChatmixWebhookEvent(payload, result) {
     raw: payload.body,
     query: sanitizedQuery(payload.query),
     result
+  };
+}
+
+async function persistChatmixWebhookEvent(req, payload, result) {
+  const eventPayload = chatmixWebhookEventPayload(payload, result);
+  let log = null;
+
+  try {
+    log = await prisma.webhookLog.create({
+      data: {
+        provider: 'chatmix',
+        attendanceId: eventPayload.attendanceId,
+        channelName: eventPayload.channel.name,
+        channelType: eventPayload.channel.type,
+        eventStatus: optionalText(result?.status),
+        shortCode: optionalText(result?.shortCode),
+        conversionId: result?.conversionId || null,
+        linkId: result?.linkId || null,
+        visitorName: optionalText(result?.visitorName),
+        visitorPhone: optionalText(result?.visitorPhone),
+        visitorDocument: optionalText(result?.visitorDocument),
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] || null,
+        raw: eventPayload.raw,
+        query: eventPayload.query,
+        result
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao salvar log do webhook Chatmix:', error);
+  }
+
+  publishRealtimeEvent('chatmix-webhook', {
+    ...eventPayload,
+    id: log?.id || null
   });
+
+  return log;
+}
+
+function formatWebhookLog(log) {
+  return {
+    id: log.id,
+    receivedAt: log.receivedAt,
+    attendanceId: log.attendanceId,
+    channel: {
+      name: log.channelName,
+      type: log.channelType
+    },
+    raw: log.raw,
+    query: log.query,
+    result: log.result
+  };
 }
 
 function visitorDataFromPayload(payload) {
@@ -368,7 +421,71 @@ function recentConversionWhere(visitorData, linkId) {
   };
 }
 
+function recentBlankConversionWhere(linkId) {
+  if (!linkId) {
+    return null;
+  }
+
+  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+
+  return {
+    linkId,
+    convertedAt: {
+      gte: since
+    },
+    AND: [
+      {
+        OR: [
+          {
+            visitorPhone: null
+          },
+          {
+            visitorPhone: ''
+          }
+        ]
+      },
+      {
+        OR: [
+          {
+            visitorDocument: null
+          },
+          {
+            visitorDocument: ''
+          }
+        ]
+      }
+    ]
+  };
+}
+
 class ChatmixWebhookController {
+  async listLogs(req, res) {
+    try {
+      const limit = Math.min(
+        Math.max(Number(req.query.limit) || 50, 1),
+        200
+      );
+
+      const logs = await prisma.webhookLog.findMany({
+        where: {
+          provider: 'chatmix'
+        },
+        orderBy: {
+          receivedAt: 'desc'
+        },
+        take: limit
+      });
+
+      return res.json(logs.map(formatWebhookLog));
+    } catch (error) {
+      console.error(error);
+
+      return res.status(500).json({
+        error: 'Erro ao listar webhooks Chatmix'
+      });
+    }
+  }
+
   async receive(req, res) {
     try {
       if (!isAuthorized(req)) {
@@ -391,7 +508,7 @@ class ChatmixWebhookController {
         });
 
         if (!link) {
-          publishChatmixWebhookEvent(payload, {
+          await persistChatmixWebhookEvent(req, payload, {
             status: 'ignored',
             reason: 'link not found',
             shortCode
@@ -434,7 +551,7 @@ class ChatmixWebhookController {
         'to'
       ]);
       const recentWhere = recentConversionWhere(visitorData, link?.id);
-      const existingConversion = recentWhere
+      let existingConversion = recentWhere
         ? await prisma.conversion.findFirst({
             where: recentWhere,
             orderBy: {
@@ -451,8 +568,21 @@ class ChatmixWebhookController {
         });
       }
 
+      const blankRecentWhere = !existingConversion
+        ? recentBlankConversionWhere(link?.id)
+        : null;
+
+      if (blankRecentWhere) {
+        existingConversion = await prisma.conversion.findFirst({
+          where: blankRecentWhere,
+          orderBy: {
+            convertedAt: 'desc'
+          }
+        });
+      }
+
       if (!link) {
-        publishChatmixWebhookEvent(payload, {
+        await persistChatmixWebhookEvent(req, payload, {
           status: 'ignored',
           reason: 'link not resolved',
           visitorPhone: visitorData.visitorPhone,
@@ -495,7 +625,7 @@ class ChatmixWebhookController {
             }
           });
 
-      publishChatmixWebhookEvent(payload, {
+      await persistChatmixWebhookEvent(req, payload, {
         status: existingConversion ? 'updated' : 'received',
         conversionId: conversion.id,
         linkId: link.id,
