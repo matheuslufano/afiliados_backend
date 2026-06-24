@@ -1,6 +1,9 @@
 const crypto = require('node:crypto');
 
 const prisma = require('../database/prisma');
+const {
+  publishRealtimeEvent
+} = require('../utils/realtimeEvents');
 
 const CODE_PATTERN = '[a-f0-9]{8}';
 
@@ -137,6 +140,9 @@ function extractShortCode(body) {
     'referencia',
     'codigo',
     'codigoafiliado',
+    'codigodeafiliado',
+    'codigodivulgacao',
+    'codigodedivulgacao',
     'affiliatecode',
     'linkcode'
   ]);
@@ -231,6 +237,32 @@ function requestPayload(req) {
     body: req.body || {},
     query: req.query || {}
   };
+}
+
+function sanitizedQuery(query) {
+  return Object.entries(query || {}).reduce((acc, [key, value]) => {
+    if (/secret|token|authorization/i.test(key)) {
+      acc[key] = '[hidden]';
+      return acc;
+    }
+
+    acc[key] = value;
+    return acc;
+  }, {});
+}
+
+function publishChatmixWebhookEvent(payload, result) {
+  publishRealtimeEvent('chatmix-webhook', {
+    receivedAt: new Date().toISOString(),
+    attendanceId: chatmixAttendanceId(payload),
+    channel: {
+      name: optionalText(payload?.body?.channel_data?.name),
+      type: optionalText(payload?.body?.channel_data?.type)
+    },
+    raw: payload.body,
+    query: sanitizedQuery(payload.query),
+    result
+  });
 }
 
 function visitorDataFromPayload(payload) {
@@ -359,6 +391,12 @@ class ChatmixWebhookController {
         });
 
         if (!link) {
+          publishChatmixWebhookEvent(payload, {
+            status: 'ignored',
+            reason: 'link not found',
+            shortCode
+          });
+
           return res.json({
             status: 'ignored',
             reason: 'link not found',
@@ -414,6 +452,13 @@ class ChatmixWebhookController {
       }
 
       if (!link) {
+        publishChatmixWebhookEvent(payload, {
+          status: 'ignored',
+          reason: 'link not resolved',
+          visitorPhone: visitorData.visitorPhone,
+          visitorDocument: visitorData.visitorDocument
+        });
+
         return res.json({
           status: 'ignored',
           reason: 'link not resolved',
@@ -449,6 +494,24 @@ class ChatmixWebhookController {
               linkId: link.id
             }
           });
+
+      publishChatmixWebhookEvent(payload, {
+        status: existingConversion ? 'updated' : 'received',
+        conversionId: conversion.id,
+        linkId: link.id,
+        shortCode: link.shortCode,
+        visitorName: conversion.visitorName,
+        visitorPhone: conversion.visitorPhone,
+        visitorDocument: conversion.visitorDocument
+      });
+
+      publishRealtimeEvent('link-converted', {
+        linkId: link.id,
+        shortCode: link.shortCode,
+        conversionId: conversion.id,
+        product: conversion.product,
+        convertedAt: conversion.convertedAt
+      });
 
       return res.status(existingConversion ? 200 : 201).json({
         status: existingConversion ? 'updated' : 'received',
