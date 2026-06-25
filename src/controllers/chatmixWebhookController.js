@@ -141,6 +141,7 @@ function extractShortCode(body) {
     'codigo',
     'codigoafiliado',
     'codigodeafiliado',
+    'codigodoafiliado',
     'codigodivulgacao',
     'codigodedivulgacao',
     'affiliatecode',
@@ -292,7 +293,11 @@ async function persistChatmixWebhookEvent(req, payload, result) {
       }
     });
   } catch (error) {
-    console.error('Erro ao salvar log do webhook Chatmix:', error);
+    if (error?.code === 'P2021') {
+      console.warn('Tabela WebhookLog ausente; webhook Chatmix nao foi arquivado.');
+    } else {
+      console.error('Erro ao salvar log do webhook Chatmix:', error);
+    }
   }
 
   publishRealtimeEvent('chatmix-webhook', {
@@ -370,7 +375,15 @@ function chatmixVisitorData(payload) {
   const genericData = visitorDataFromPayload(payload);
 
   return {
-    visitorName: optionalText(clientData.name) || genericData.visitorName,
+    visitorName: optionalText(
+      data['Nome Cliente'] ||
+        data.nomeCliente ||
+        data.nome_cliente ||
+        data.NOME ||
+        data.Nome ||
+        data.nome ||
+        data.cliente
+    ) || optionalText(clientData.name) || genericData.visitorName,
     visitorPhone: normalizePhone(clientData.user) ||
       normalizePhone(clientData.validate?.user) ||
       genericData.visitorPhone,
@@ -421,41 +434,55 @@ function recentConversionWhere(visitorData, linkId) {
   };
 }
 
-function recentBlankConversionWhere(linkId) {
-  if (!linkId) {
+async function conversionFromAttendance(attendanceId, linkId, visitorData) {
+  if (!attendanceId) {
     return null;
   }
 
-  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-
-  return {
-    linkId,
-    convertedAt: {
-      gte: since
-    },
-    AND: [
-      {
-        OR: [
-          {
-            visitorPhone: null
-          },
-          {
-            visitorPhone: ''
-          }
-        ]
+  try {
+    const log = await prisma.webhookLog.findFirst({
+      where: {
+        provider: 'chatmix',
+        attendanceId,
+        conversionId: {
+          not: null
+        },
+        ...(linkId && { linkId })
       },
-      {
-        OR: [
-          {
-            visitorDocument: null
-          },
-          {
-            visitorDocument: ''
-          }
-        ]
+      orderBy: {
+        receivedAt: 'desc'
       }
-    ]
-  };
+    });
+
+    if (!log?.conversionId) {
+      return null;
+    }
+
+    const conversion = await prisma.conversion.findUnique({
+      where: {
+        id: log.conversionId
+      }
+    });
+
+    if (
+      conversion?.visitorDocument &&
+      visitorData?.visitorDocument &&
+      conversion.visitorDocument !== visitorData.visitorDocument
+    ) {
+      return null;
+    }
+
+    return conversion;
+  } catch (error) {
+    if (error?.code !== 'P2021') {
+      throw error;
+    }
+
+    console.warn(
+      'Tabela WebhookLog ausente; pulando deduplicacao por attendance_id.'
+    );
+    return null;
+  }
 }
 
 class ChatmixWebhookController {
@@ -496,6 +523,7 @@ class ChatmixWebhookController {
 
       const payload = requestPayload(req);
       const visitorData = chatmixVisitorData(payload);
+      const attendanceId = chatmixAttendanceId(payload);
       const shortCode =
         extractShortCode(payload) || shortCodeFromChatmixChannel(payload);
       let link = null;
@@ -550,33 +578,17 @@ class ChatmixWebhookController {
         'from',
         'to'
       ]);
-      const recentWhere = recentConversionWhere(visitorData, link?.id);
-      let existingConversion = recentWhere
-        ? await prisma.conversion.findFirst({
-            where: recentWhere,
-            orderBy: {
-              convertedAt: 'desc'
-            }
-          })
-        : null;
+
+      let existingConversion = await conversionFromAttendance(
+        attendanceId,
+        link?.id,
+        visitorData
+      );
 
       if (!link && existingConversion) {
         link = await prisma.link.findUnique({
           where: {
             id: existingConversion.linkId
-          }
-        });
-      }
-
-      const blankRecentWhere = !existingConversion
-        ? recentBlankConversionWhere(link?.id)
-        : null;
-
-      if (blankRecentWhere) {
-        existingConversion = await prisma.conversion.findFirst({
-          where: blankRecentWhere,
-          orderBy: {
-            convertedAt: 'desc'
           }
         });
       }
@@ -592,7 +604,7 @@ class ChatmixWebhookController {
         return res.json({
           status: 'ignored',
           reason: 'link not resolved',
-          attendanceId: chatmixAttendanceId(payload),
+          attendanceId,
           visitorPhone: visitorData.visitorPhone,
           visitorDocument: visitorData.visitorDocument
         });
@@ -645,7 +657,7 @@ class ChatmixWebhookController {
 
       return res.status(existingConversion ? 200 : 201).json({
         status: existingConversion ? 'updated' : 'received',
-        attendanceId: chatmixAttendanceId(payload),
+        attendanceId,
         conversionId: conversion.id,
         linkId: link.id,
         shortCode: link.shortCode,
