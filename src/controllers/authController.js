@@ -58,7 +58,8 @@ class AuthController {
           id: user.id,
           name: user.name,
           email: user.email,
-          city: user.city
+          city: user.city,
+          photoUrl: user.photoUrl
         }
       });
     } catch (error) {

@@ -8,13 +8,15 @@ class AffiliateController {
         name,
         email,
         phone,
-        city
+        city,
+        photoUrl
       } = req.body;
 
       const trimmedName = String(name || '').trim();
       const trimmedEmail = String(email || '').trim();
       const trimmedPhone = String(phone || '').trim();
       const trimmedCity = String(city || '').trim();
+      const trimmedPhotoUrl = String(photoUrl || '').trim();
 
       if (!trimmedName || !trimmedEmail) {
         return res.status(400).json({
@@ -28,7 +30,8 @@ class AffiliateController {
             name: trimmedName,
             email: trimmedEmail,
             phone: trimmedPhone || null,
-            city: trimmedCity || null
+            city: trimmedCity || null,
+            photoUrl: trimmedPhotoUrl || null
           }
         });
 
@@ -79,6 +82,7 @@ class AffiliateController {
         email,
         phone,
         city,
+        photoUrl,
         active
       } = req.body;
 
@@ -98,6 +102,10 @@ class AffiliateController {
 
       if (city !== undefined) {
         data.city = String(city).trim() || null;
+      }
+
+      if (photoUrl !== undefined) {
+        data.photoUrl = String(photoUrl).trim() || null;
       }
 
       if (active !== undefined) {

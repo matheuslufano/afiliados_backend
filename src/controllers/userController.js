@@ -6,6 +6,7 @@ function formatUser(user) {
     name: user.name,
     email: user.email,
     city: user.city,
+    photoUrl: user.photoUrl,
     createdAt: user.createdAt
   };
 }
@@ -35,6 +36,7 @@ class UserController {
       const email = String(req.body.email || '').trim().toLowerCase();
       const password = String(req.body.password || '').trim();
       const city = String(req.body.city || '').trim();
+      const photoUrl = String(req.body.photoUrl || '').trim();
 
       if (!name || !email || !password) {
         return res.status(400).json({
@@ -53,7 +55,8 @@ class UserController {
           name,
           email,
           password,
-          city: city || null
+          city: city || null,
+          photoUrl: photoUrl || null
         }
       });
 
@@ -109,6 +112,10 @@ class UserController {
 
       if (req.body.city !== undefined) {
         data.city = String(req.body.city || '').trim() || null;
+      }
+
+      if (req.body.photoUrl !== undefined) {
+        data.photoUrl = String(req.body.photoUrl || '').trim() || null;
       }
 
       if (req.body.password !== undefined) {

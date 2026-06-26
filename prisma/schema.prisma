@@ -13,6 +13,7 @@ model User {
   email     String   @unique
   password  String
   city      String?
+  photoUrl  String?
   createdAt DateTime @default(now())
 
   links Link[]
@@ -24,6 +25,7 @@ model Affiliate {
   email     String?  @unique
   phone     String?
   city      String?
+  photoUrl  String?
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 

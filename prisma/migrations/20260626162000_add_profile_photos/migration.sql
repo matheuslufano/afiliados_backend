@@ -1,0 +1,2 @@
+ALTER TABLE "User" ADD COLUMN "photoUrl" TEXT;
+ALTER TABLE "Affiliate" ADD COLUMN "photoUrl" TEXT;

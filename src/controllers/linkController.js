@@ -680,6 +680,8 @@ class LinkController {
 
       return res.json({
         affiliate: affiliate.name,
+        affiliatePhotoUrl: affiliate.photoUrl,
+        photoUrl: affiliate.photoUrl,
         totalLinks: affiliate.links.length,
         totalClicks,
         totalConversions,
