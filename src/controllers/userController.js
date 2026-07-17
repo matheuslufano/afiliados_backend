@@ -1,5 +1,21 @@
 const prisma = require('../database/prisma');
 
+function getErrorDetails(error) {
+  const parts = [];
+
+  if (error?.code) {
+    parts.push(`Codigo: ${error.code}`);
+  }
+
+  if (error?.message) {
+    parts.push(String(error.message).replace(/\s+/g, ' ').trim());
+  }
+
+  const message = parts.join(' - ') || 'Erro interno sem detalhes disponiveis';
+
+  return message.slice(0, 700);
+}
+
 function formatUser(user) {
   return {
     id: user.id,
@@ -25,7 +41,8 @@ class UserController {
       console.error(error);
 
       return res.status(500).json({
-        error: 'Erro ao listar usuarios'
+        error: 'Erro ao listar usuarios',
+        details: getErrorDetails(error)
       });
     }
   }
@@ -71,7 +88,8 @@ class UserController {
       console.error(error);
 
       return res.status(500).json({
-        error: 'Erro ao criar usuario'
+        error: 'Erro ao criar usuario',
+        details: getErrorDetails(error)
       });
     }
   }
@@ -155,7 +173,8 @@ class UserController {
       console.error(error);
 
       return res.status(500).json({
-        error: 'Erro ao atualizar usuario'
+        error: 'Erro ao atualizar usuario',
+        details: getErrorDetails(error)
       });
     }
   }
@@ -223,7 +242,8 @@ class UserController {
       console.error(error);
 
       return res.status(500).json({
-        error: 'Erro ao apagar usuario'
+        error: 'Erro ao apagar usuario',
+        details: getErrorDetails(error)
       });
     }
   }

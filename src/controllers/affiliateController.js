@@ -1,5 +1,21 @@
 const prisma = require('../database/prisma');
 
+function getErrorDetails(error) {
+  const parts = [];
+
+  if (error?.code) {
+    parts.push(`Codigo: ${error.code}`);
+  }
+
+  if (error?.message) {
+    parts.push(String(error.message).replace(/\s+/g, ' ').trim());
+  }
+
+  const message = parts.join(' - ') || 'Erro interno sem detalhes disponiveis';
+
+  return message.slice(0, 700);
+}
+
 class AffiliateController {
 
   async create(req, res) {
@@ -48,7 +64,8 @@ class AffiliateController {
       console.error(error);
 
       return res.status(500).json({
-        error: 'Erro ao criar afiliado'
+        error: 'Erro ao criar afiliado',
+        details: getErrorDetails(error)
       });
     }
   }
@@ -68,7 +85,8 @@ class AffiliateController {
       console.error(error);
 
       return res.status(500).json({
-        error: 'Erro ao listar afiliados'
+        error: 'Erro ao listar afiliados',
+        details: getErrorDetails(error)
       });
     }
   }
@@ -133,7 +151,8 @@ class AffiliateController {
       console.error(error);
 
       return res.status(500).json({
-        error: 'Erro ao atualizar afiliado'
+        error: 'Erro ao atualizar afiliado',
+        details: getErrorDetails(error)
       });
     }
   }
@@ -157,7 +176,8 @@ class AffiliateController {
       console.error(error);
 
       return res.status(500).json({
-        error: 'Erro ao deletar afiliado'
+        error: 'Erro ao deletar afiliado',
+        details: getErrorDetails(error)
       });
     }
   }
