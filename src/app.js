@@ -14,6 +14,7 @@ const chatmixWebhookRoutes = require('./routes/chatmixWebhookRoutes');
 const sgpRoutes = require('./routes/sgpRoutes');
 const wordpressRoutes = require('./routes/wordpressRoutes');
 const eventRoutes = require('./routes/eventRoutes');
+const crmRoutes = require('./routes/crmRoutes');
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use(chatmixWebhookRoutes);
 app.use(sgpRoutes);
 app.use(wordpressRoutes);
 app.use(eventRoutes);
+app.use(crmRoutes);
 
 app.get('/', (req, res) => {
   res.send('API funcionando 🚀');

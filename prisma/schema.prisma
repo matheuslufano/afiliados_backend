@@ -30,6 +30,8 @@ model Affiliate {
   createdAt DateTime @default(now())
 
   links Link[]
+  crmDeals CrmDeal[]
+  affiliateCommissions AffiliateCommission[]
 } 
 
 model Campaign {
@@ -60,6 +62,7 @@ model Link {
 
   clicks Click[]
   conversions Conversion[]
+  crmDeals CrmDeal[]
 }
 
 model Click {
@@ -123,6 +126,8 @@ model Conversion {
 
   linkId Int
   link   Link @relation(fields: [linkId], references: [id])
+
+  crmDeal CrmDeal?
 }
 
 model WebhookLog {
@@ -148,4 +153,168 @@ model WebhookLog {
   @@index([provider, receivedAt])
   @@index([attendanceId])
   @@index([shortCode])
+}
+
+model CrmFunnel {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  stages CrmStage[]
+  deals  CrmDeal[]
+}
+
+model CrmStage {
+  id          Int      @id @default(autoincrement())
+  name        String
+  position    Int
+  color       String?
+  slaHours    Int?
+  isFinal     Boolean  @default(false)
+  isWonStage  Boolean  @default(false)
+  isLostStage Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  funnelId Int
+  funnel   CrmFunnel @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  deals    CrmDeal[]
+
+  @@unique([funnelId, name])
+  @@index([funnelId, position])
+}
+
+model CrmDealStatus {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  name      String
+  color     String?
+  isFinal   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deals CrmDeal[]
+}
+
+model CrmLeadSource {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  type      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deals CrmDeal[]
+}
+
+model CrmDeal {
+  id                Int       @id @default(autoincrement())
+  customerName      String
+  phone             String?
+  email             String?
+  city              String?
+  neighborhood      String?
+  address           String?
+  estimatedValue    Decimal?  @db.Decimal(10, 2)
+  monthlyValue      Decimal?  @db.Decimal(10, 2)
+  plan              String?
+  priorityLevel     String    @default("medium")
+  cardColor         String?
+  owner             String?
+  notes             String?
+  trackingCode      String?
+  rdId              String?
+  chatmixId         String?
+  sgpId             String?
+  campaignName      String?
+  lastInteractionAt DateTime?
+  nextFollowUpAt    DateTime?
+  closedAt          DateTime?
+  archivedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  funnelId     Int
+  funnel       CrmFunnel @relation(fields: [funnelId], references: [id])
+  stageId      Int
+  stage        CrmStage @relation(fields: [stageId], references: [id])
+  statusId     Int
+  status       CrmDealStatus @relation(fields: [statusId], references: [id])
+  sourceId     Int?
+  source       CrmLeadSource? @relation(fields: [sourceId], references: [id])
+  affiliateId  Int?
+  affiliate    Affiliate? @relation(fields: [affiliateId], references: [id])
+  linkId       Int?
+  link         Link? @relation(fields: [linkId], references: [id])
+  conversionId Int? @unique
+  conversion   Conversion? @relation(fields: [conversionId], references: [id])
+
+  tasks       CrmDealTask[]
+  history     CrmDealHistory[]
+  commissions AffiliateCommission[]
+
+  @@index([funnelId])
+  @@index([stageId])
+  @@index([statusId])
+  @@index([affiliateId])
+  @@index([createdAt])
+}
+
+model CrmDealTask {
+  id          Int       @id @default(autoincrement())
+  title       String
+  description String?
+  taskType    String?
+  status      String    @default("pending")
+  dueAt       DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  dealId Int
+  deal   CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId, status])
+}
+
+model CrmDealHistory {
+  id        Int      @id @default(autoincrement())
+  eventType String
+  message   String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  dealId Int
+  deal   CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId, createdAt])
+}
+
+model CrmSyncLog {
+  id              Int       @id @default(autoincrement())
+  integrationName String
+  status          String
+  message         String?
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
+  createdAt       DateTime  @default(now())
+}
+
+model AffiliateCommission {
+  id        Int      @id @default(autoincrement())
+  amount    Decimal  @db.Decimal(10, 2)
+  status    String   @default("pending")
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  affiliateId Int
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id])
+  dealId      Int
+  deal        CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@unique([affiliateId, dealId])
+  @@index([dealId])
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "CrmDeal" ADD COLUMN "owner" TEXT;

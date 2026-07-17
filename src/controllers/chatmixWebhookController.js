@@ -400,8 +400,150 @@ function chatmixVisitorData(payload) {
     source: optionalText(channelData.name) ||
       optionalText(channelData.type) ||
       genericData.source ||
-      'chatmix'
+      'chatmix',
+    affiliateName: optionalText(
+      data['Afiliado:'] ||
+        data.Afiliado ||
+        data.afiliado
+    )
   };
+}
+
+const CRM_FUNNEL_NAME = 'Funil Vendas Chatmix';
+
+async function ensureChatmixCrmPlacement(transaction) {
+  const funnel = await transaction.crmFunnel.upsert({
+    where: { name: CRM_FUNNEL_NAME },
+    update: { isActive: true },
+    create: {
+      name: CRM_FUNNEL_NAME,
+      description: 'Funil principal para atendimentos recebidos do Chatmix.'
+    }
+  });
+  const status = await transaction.crmDealStatus.upsert({
+    where: { key: 'new' },
+    update: {},
+    create: {
+      key: 'new',
+      name: 'Nova',
+      color: '#2563eb',
+      isFinal: false
+    }
+  });
+  const source = await transaction.crmLeadSource.upsert({
+    where: { name: 'Chatmix' },
+    update: { type: 'chatmix' },
+    create: { name: 'Chatmix', type: 'chatmix' }
+  });
+  let stage = await transaction.crmStage.findFirst({
+    where: {
+      funnelId: funnel.id,
+      name: 'Novo contato'
+    }
+  });
+
+  if (!stage) {
+    stage = await transaction.crmStage.findFirst({
+      where: { funnelId: funnel.id },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }]
+    });
+  }
+
+  if (!stage) {
+    stage = await transaction.crmStage.create({
+      data: {
+        funnelId: funnel.id,
+        name: 'Novo contato',
+        position: 1,
+        color: '#64748b',
+        slaHours: 24
+      }
+    });
+  }
+
+  return { funnel, stage, status, source };
+}
+
+async function createOrUpdateCrmDealFromAttendance(
+  attendanceId,
+  visitorData,
+  link = null
+) {
+  if (!attendanceId) {
+    return null;
+  }
+
+  return prisma.$transaction(async (transaction) => {
+    await transaction.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtext(${`chatmix:${attendanceId}`}))
+    `;
+
+    const existing = await transaction.crmDeal.findFirst({
+      where: { chatmixId: attendanceId }
+    });
+    const now = new Date();
+
+    if (existing) {
+      const shouldReplaceGeneratedName =
+        existing.customerName === `Atendimento Chatmix #${attendanceId}`;
+      const deal = await transaction.crmDeal.update({
+        where: { id: existing.id },
+        data: {
+          ...(visitorData.visitorName && shouldReplaceGeneratedName
+            ? { customerName: visitorData.visitorName }
+            : {}),
+          ...(visitorData.visitorPhone
+            ? { phone: visitorData.visitorPhone }
+            : {}),
+          ...(visitorData.visitorCity
+            ? { city: visitorData.visitorCity }
+            : {}),
+          ...(visitorData.affiliateName
+            ? { owner: visitorData.affiliateName }
+            : {}),
+          ...(link?.id ? { linkId: link.id } : {}),
+          ...(link?.affiliateId ? { affiliateId: link.affiliateId } : {}),
+          lastInteractionAt: now
+        }
+      });
+
+      return { deal, created: false };
+    }
+
+    const placement = await ensureChatmixCrmPlacement(transaction);
+    const deal = await transaction.crmDeal.create({
+      data: {
+        customerName:
+          visitorData.visitorName ||
+          `Atendimento Chatmix #${attendanceId}`,
+        phone: visitorData.visitorPhone,
+        city: visitorData.visitorCity,
+        owner: visitorData.affiliateName,
+        priorityLevel: 'medium',
+        notes: `Atendimento ${attendanceId} criado automaticamente pelo webhook do Chatmix.`,
+        chatmixId: attendanceId,
+        lastInteractionAt: now,
+        nextFollowUpAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+        funnelId: placement.funnel.id,
+        stageId: placement.stage.id,
+        statusId: placement.status.id,
+        sourceId: placement.source.id,
+        linkId: link?.id || null,
+        affiliateId: link?.affiliateId || null
+      }
+    });
+
+    await transaction.crmDealHistory.create({
+      data: {
+        dealId: deal.id,
+        eventType: 'chatmix_attendance_created',
+        message: `Novo atendimento Chatmix recebido (${attendanceId})`,
+        metadata: { attendanceId }
+      }
+    });
+
+    return { deal, created: true };
+  });
 }
 
 function recentConversionWhere(visitorData, linkId) {
@@ -535,20 +677,13 @@ class ChatmixWebhookController {
           }
         });
 
-        if (!link) {
-          await persistChatmixWebhookEvent(req, payload, {
-            status: 'ignored',
-            reason: 'link not found',
-            shortCode
-          });
-
-          return res.json({
-            status: 'ignored',
-            reason: 'link not found',
-            shortCode
-          });
-        }
       }
+
+      const crmAttendance = await createOrUpdateCrmDealFromAttendance(
+        attendanceId,
+        visitorData,
+        link
+      );
 
       const eventName = firstStringByKey(payload, [
         'event',
@@ -594,17 +729,22 @@ class ChatmixWebhookController {
       }
 
       if (!link) {
+        const status = crmAttendance?.created ? 'received' : 'updated';
         await persistChatmixWebhookEvent(req, payload, {
-          status: 'ignored',
+          status,
           reason: 'link not resolved',
+          crmDealId: crmAttendance?.deal?.id || null,
+          shortCode,
           visitorPhone: visitorData.visitorPhone,
           visitorDocument: visitorData.visitorDocument
         });
 
-        return res.json({
-          status: 'ignored',
+        return res.status(crmAttendance?.created ? 201 : 200).json({
+          status,
           reason: 'link not resolved',
           attendanceId,
+          crmDealId: crmAttendance?.deal?.id || null,
+          shortCode,
           visitorPhone: visitorData.visitorPhone,
           visitorDocument: visitorData.visitorDocument
         });
@@ -637,9 +777,21 @@ class ChatmixWebhookController {
             }
           });
 
+      if (crmAttendance?.deal?.id) {
+        await prisma.crmDeal.update({
+          where: { id: crmAttendance.deal.id },
+          data: {
+            conversionId: conversion.id,
+            linkId: link.id,
+            affiliateId: link.affiliateId || null
+          }
+        });
+      }
+
       await persistChatmixWebhookEvent(req, payload, {
         status: existingConversion ? 'updated' : 'received',
         conversionId: conversion.id,
+        crmDealId: crmAttendance?.deal?.id || null,
         linkId: link.id,
         shortCode: link.shortCode,
         visitorName: conversion.visitorName,
@@ -651,6 +803,7 @@ class ChatmixWebhookController {
         linkId: link.id,
         shortCode: link.shortCode,
         conversionId: conversion.id,
+        crmDealId: crmAttendance?.deal?.id || null,
         product: conversion.product,
         convertedAt: conversion.convertedAt
       });
