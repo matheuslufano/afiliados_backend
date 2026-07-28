@@ -44,6 +44,10 @@ jobs:
 
             cd "$RELEASE"
 
+            # O Docker rootless da VM compartilha a cota de 5 GB do usuario.
+            # Limpar o cache evita falhas ENOSPC/EDQUOT durante o npm ci.
+            docker builder prune --all --force
+
             docker build -t afiliados-backend:${{ github.sha }} .
 
             docker stop afiliados-backend || true
@@ -61,6 +65,12 @@ jobs:
 
             sleep 5
             curl -fsS http://127.0.0.1:3001/health
+
+            docker images afiliados-backend \
+              --format '{{.Repository}}:{{.Tag}}' \
+              | tail -n +4 \
+              | xargs -r docker image rm \
+              || true
 
             ls -1dt "$RELEASES_DIR"/* 2>/dev/null \
               | tail -n +6 \
