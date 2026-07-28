@@ -1,0 +1,12 @@
+[Unit]
+Description=Atualiza o backend Afiliados Netbox a partir do GitHub
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/netbox/bin/deploy-afiliados-backend
+TimeoutStartSec=15min
+
+[Install]
+WantedBy=default.target

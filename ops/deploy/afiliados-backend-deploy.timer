@@ -1,0 +1,12 @@
+[Unit]
+Description=Verifica novos commits do backend Afiliados Netbox
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+RandomizedDelaySec=10s
+Persistent=true
+Unit=afiliados-backend-deploy.service
+
+[Install]
+WantedBy=timers.target
