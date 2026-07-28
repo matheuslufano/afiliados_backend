@@ -30,10 +30,27 @@ jobs:
             RELEASE="$RELEASES_DIR/${{ github.sha }}"
             REPO_URL="https://github.com/${{ github.repository }}.git"
 
+            # O Docker rootless da VM compartilha a cota de 5 GB do usuario.
+            # Limpar o cache antes do clone evita falhas ENOSPC/EDQUOT.
+            docker builder prune --all --force
+
             mkdir -p "$RELEASES_DIR"
             rm -rf "$RELEASE"
 
-            git clone --depth 1 --branch main "$REPO_URL" "$RELEASE"
+            for attempt in 1 2 3; do
+              if git clone --depth 1 --branch main "$REPO_URL" "$RELEASE"; then
+                break
+              fi
+
+              rm -rf "$RELEASE"
+
+              if [ "$attempt" -eq 3 ]; then
+                echo "Nao foi possivel clonar o repositorio apos 3 tentativas."
+                exit 1
+              fi
+
+              sleep 10
+            done
 
             if [ ! -f "$APP_ROOT/current/.env.docker.runtime" ]; then
               echo "Missing $APP_ROOT/current/.env.docker.runtime"
@@ -43,10 +60,6 @@ jobs:
             cp "$APP_ROOT/current/.env.docker.runtime" "$RELEASE/.env.docker.runtime"
 
             cd "$RELEASE"
-
-            # O Docker rootless da VM compartilha a cota de 5 GB do usuario.
-            # Limpar o cache evita falhas ENOSPC/EDQUOT durante o npm ci.
-            docker builder prune --all --force
 
             docker build -t afiliados-backend:${{ github.sha }} .
 
