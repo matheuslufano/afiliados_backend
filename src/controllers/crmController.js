@@ -1,4 +1,12 @@
 const prisma = require('../database/prisma');
+const {
+  accessWhere,
+  canAssign,
+  isManager,
+  orderBy,
+  parseConditions,
+  scopeWhere
+} = require('../services/crmAccess');
 
 const FUNNEL_NAME = 'Funil Vendas Chatmix';
 
@@ -467,14 +475,20 @@ function formatDeal(deal) {
     stageName: deal.stage.name,
     funnelId: String(deal.funnelId),
     source: deal.source?.name || 'Manual',
-    affiliate: deal.owner || deal.affiliate?.name || 'Sem afiliado',
+    affiliate: deal.affiliate?.name || 'Sem afiliado',
     affiliateId: deal.affiliateId,
     campaign: deal.campaignName || link?.campaign?.name || link?.name || 'Sem campanha',
     value: toPlainDecimal(deal.estimatedValue),
     monthlyValue: toPlainDecimal(deal.monthlyValue),
     plan: deal.plan || conversion?.product || 'A definir',
     cardColor: deal.cardColor || '',
-    owner: deal.owner || deal.affiliate?.name || 'Equipe Netbox',
+    owner: deal.responsibleUser?.name || '',
+    createdByUserId: deal.createdByUserId,
+    createdByUserName: deal.createdByUser?.name || '',
+    responsibleUserId: deal.responsibleUserId,
+    responsibleUserName: deal.responsibleUser?.name || '',
+    responsibleUserPhotoUrl: deal.responsibleUser?.photoUrl || null,
+    updatedByUserId: deal.updatedByUserId,
     activity:
       deal.tasks?.[0]?.title ||
       (deal.status.key === 'won'
@@ -595,6 +609,89 @@ function readStagePayload(body) {
 }
 
 class CrmController {
+  async createFunnel(req, res) {
+    try {
+      const name = String(req.body.name || '').trim();
+      const description = String(req.body.description || '').trim() || null;
+      const sourceFunnelId = Number(req.body.sourceFunnelId);
+
+      if (!name || name.length > 80) {
+        return res.status(400).json({
+          error: 'O nome do funil e obrigatorio e deve ter ate 80 caracteres'
+        });
+      }
+
+      const defaults = await ensureCrmDefaults();
+      const source = await prisma.crmFunnel.findUnique({
+        where: {
+          id: Number.isInteger(sourceFunnelId)
+            ? sourceFunnelId
+            : defaults.funnel.id
+        },
+        include: {
+          stages: {
+            orderBy: {
+              position: 'asc'
+            }
+          }
+        }
+      });
+
+      if (!source) {
+        return res.status(400).json({ error: 'Funil de origem nao encontrado' });
+      }
+
+      const funnel = await prisma.$transaction(async (transaction) => {
+        const created = await transaction.crmFunnel.create({
+          data: {
+            name,
+            description
+          }
+        });
+
+        if (source.stages.length > 0) {
+          await transaction.crmStage.createMany({
+            data: source.stages.map((stage) => ({
+              funnelId: created.id,
+              name: stage.name,
+              position: stage.position,
+              color: stage.color,
+              slaHours: stage.slaHours,
+              isFinal: stage.isFinal,
+              isWonStage: stage.isWonStage,
+              isLostStage: stage.isLostStage
+            }))
+          });
+        }
+
+        return transaction.crmFunnel.findUnique({
+          where: { id: created.id },
+          include: {
+            stages: {
+              orderBy: { position: 'asc' }
+            }
+          }
+        });
+      });
+
+      return res.status(201).json({
+        id: String(funnel.id),
+        name: funnel.name,
+        description: funnel.description,
+        stages: funnel.stages.map(formatStage)
+      });
+    } catch (error) {
+      if (error?.code === 'P2002') {
+        return res.status(409).json({
+          error: 'Ja existe um funil com esse nome'
+        });
+      }
+
+      console.error(error);
+      return res.status(500).json({ error: 'Erro ao criar funil' });
+    }
+  }
+
   async listDeals(req, res) {
     try {
       const shouldSync = req.query.syncConverted !== 'false';
@@ -617,13 +714,26 @@ class CrmController {
           }
         }
       });
+      const requestedUserId = req.query.responsibleUserId
+        ? Number(req.query.responsibleUserId)
+        : null;
+      const funnelId = req.query.funnelId ? Number(req.query.funnelId) : null;
+      const conditions = parseConditions(req.query.filters);
+      const queryParts = [
+        { archivedAt: null },
+        accessWhere(req.user),
+        scopeWhere(req.user, String(req.query.scope || ''), requestedUserId),
+        ...conditions
+      ];
+
+      if (funnelId) queryParts.push({ funnelId });
+      if (req.query.status && req.query.status !== 'all') {
+        queryParts.push({ status: { key: String(req.query.status) } });
+      }
+
       const deals = await prisma.crmDeal.findMany({
-        where: {
-          archivedAt: null
-        },
-        orderBy: {
-          updatedAt: 'desc'
-        },
+        where: { AND: queryParts },
+        orderBy: orderBy(String(req.query.sort || 'created-desc')),
         include: {
           funnel: true,
           stage: true,
@@ -648,6 +758,8 @@ class CrmController {
             take: 20
           },
           commissions: true
+          ,createdByUser: { select: { id: true, name: true } }
+          ,responsibleUser: { select: { id: true, name: true, photoUrl: true } }
         }
       });
 
@@ -658,7 +770,10 @@ class CrmController {
           description: funnel.description,
           stages: funnel.stages.map(formatStage)
         })),
-        stages: (funnels[0]?.stages || Object.values(defaults.stages)).map(formatStage),
+        stages: (
+          funnels.find((funnel) => !funnelId || funnel.id === funnelId)?.stages ||
+          Object.values(defaults.stages)
+        ).map(formatStage),
         statuses: Object.values(defaults.statuses).map((status) => ({
           id: status.key,
           name: status.name,
@@ -666,9 +781,23 @@ class CrmController {
           isFinal: status.isFinal
         })),
         deals: deals.map(formatDeal),
+        currentUser: req.user,
+        permissions: {
+          canViewAll: req.user.role === 'ADMIN',
+          canViewTeam: isManager(req.user) && Boolean(req.user.teamId),
+          canViewUnassigned: isManager(req.user),
+          canShareFilters: isManager(req.user),
+          canTransfer: true
+        },
         sync
       });
     } catch (error) {
+      if (error instanceof SyntaxError || /invalido|Filtros/.test(error.message)) {
+        return res.status(error.status || 400).json({ error: error.message });
+      }
+      if (error.status) {
+        return res.status(error.status).json({ error: error.message });
+      }
       console.error(error);
       await prisma.crmSyncLog.create({
         data: {
@@ -695,6 +824,176 @@ class CrmController {
         error: 'Erro ao sincronizar conversoes com CRM'
       });
     }
+  }
+
+  async listAssignableUsers(req, res) {
+    const users = await prisma.user.findMany({
+      where: {
+        active: true
+      },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        photoUrl: true,
+        role: true,
+        teamId: true
+      }
+    });
+    return res.json(users);
+  }
+
+  async createDeal(req, res) {
+    try {
+      const defaults = await ensureCrmDefaults();
+      const customerName = String(req.body.customerName || '').trim();
+      if (!customerName) {
+        return res.status(400).json({ error: 'Nome do cliente e obrigatorio' });
+      }
+
+      const funnelId = Number(req.body.funnelId) || defaults.funnel.id;
+      const stageId = Number(req.body.stageId) || Object.values(defaults.stages)[0]?.id;
+      const stage = await prisma.crmStage.findFirst({ where: { id: stageId, funnelId } });
+      const status = await prisma.crmDealStatus.findUnique({
+        where: { key: String(req.body.status || 'new') }
+      });
+      if (!stage || !status) {
+        return res.status(400).json({ error: 'Funil, etapa ou status invalido' });
+      }
+
+      let responsibleUserId = req.user.id;
+      if (req.body.responsibleUserId !== undefined) {
+        const requestedId = req.body.responsibleUserId === null
+          ? null
+          : Number(req.body.responsibleUserId);
+        if (requestedId === null && !isManager(req.user)) {
+          return res.status(403).json({ error: 'Somente gestores podem criar negociacoes sem responsavel' });
+        }
+        if (requestedId !== null && requestedId !== req.user.id) {
+          const target = await prisma.user.findUnique({ where: { id: requestedId } });
+          if (!canAssign(req.user, target)) {
+            return res.status(403).json({ error: 'Responsavel nao permitido' });
+          }
+        }
+        responsibleUserId = requestedId;
+      }
+
+      const sourceName = String(req.body.source || 'Manual').trim();
+      const source = await prisma.crmLeadSource.upsert({
+        where: { name: sourceName },
+        update: {},
+        create: { name: sourceName, type: 'manual' }
+      });
+      const deal = await prisma.crmDeal.create({
+        data: {
+          customerName,
+          phone: String(req.body.phone || '').trim() || null,
+          email: String(req.body.email || '').trim() || null,
+          city: String(req.body.city || '').trim() || null,
+          neighborhood: String(req.body.neighborhood || '').trim() || null,
+          address: String(req.body.address || '').trim() || null,
+          plan: String(req.body.plan || '').trim() || null,
+          notes: String(req.body.notes || '').trim() || null,
+          campaignName: String(req.body.campaign || '').trim() || null,
+          monthlyValue: Number(req.body.monthlyValue || req.body.value) || null,
+          estimatedValue: Number(req.body.value || req.body.monthlyValue) || null,
+          priorityLevel: String(req.body.priority || 'medium'),
+          funnelId,
+          stageId,
+          statusId: status.id,
+          sourceId: source.id,
+          createdByUserId: req.user.id,
+          responsibleUserId,
+          updatedByUserId: req.user.id,
+          lastInteractionAt: new Date(),
+          nextFollowUpAt: req.body.nextFollowUpAt ? new Date(req.body.nextFollowUpAt) : null,
+          history: {
+            create: {
+              eventType: 'deal_created',
+              message: `Negociacao criada por ${req.user.name}`,
+              metadata: { userId: req.user.id, responsibleUserId }
+            }
+          }
+        },
+        include: {
+          funnel: true,
+          stage: true,
+          status: true,
+          source: true,
+          affiliate: true,
+          link: { include: { campaign: true } },
+          conversion: true,
+          tasks: true,
+          history: true,
+          commissions: true,
+          createdByUser: { select: { id: true, name: true } },
+          responsibleUser: { select: { id: true, name: true, photoUrl: true } }
+        }
+      });
+      return res.status(201).json({ deal: formatDeal(deal) });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ error: 'Erro ao criar negociacao' });
+    }
+  }
+
+  async transferDeal(req, res) {
+    try {
+      const id = Number(req.params.id);
+      const responsibleUserId = req.body.responsibleUserId === null
+        ? null
+        : Number(req.body.responsibleUserId);
+      const current = await prisma.crmDeal.findFirst({
+        where: { id, ...accessWhere(req.user) },
+        include: { responsibleUser: { select: { name: true } } }
+      });
+      if (!current) return res.status(404).json({ error: 'Negociacao nao encontrada' });
+      const target = responsibleUserId
+        ? await prisma.user.findUnique({ where: { id: responsibleUserId } })
+        : null;
+      if (responsibleUserId && !canAssign(req.user, target)) {
+        return res.status(403).json({ error: 'Responsavel nao permitido' });
+      }
+      const updated = await prisma.$transaction(async (transaction) => {
+        const deal = await transaction.crmDeal.update({
+          where: { id },
+          data: {
+            responsibleUserId,
+            owner: null,
+            updatedByUserId: req.user.id
+          }
+        });
+        await transaction.crmDealHistory.create({
+          data: {
+            dealId: id,
+            eventType: 'responsible_transferred',
+            message: `Responsavel alterado de ${current.responsibleUser?.name || 'Sem responsavel'} para ${target?.name || 'Sem responsavel'} por ${req.user.name}`,
+            metadata: {
+              previousResponsibleUserId: current.responsibleUserId,
+              responsibleUserId,
+              changedByUserId: req.user.id
+            }
+          }
+        });
+        return deal;
+      });
+      return res.json({ deal: updated });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ error: 'Erro ao transferir negociacao' });
+    }
+  }
+
+  async deleteDeal(req, res) {
+    const id = Number(req.params.id);
+    if (!isManager(req.user)) {
+      return res.status(403).json({ error: 'Somente gestores podem excluir negociacoes' });
+    }
+    const deal = await prisma.crmDeal.findFirst({ where: { id, ...accessWhere(req.user) } });
+    if (!deal) return res.status(404).json({ error: 'Negociacao nao encontrada' });
+    await prisma.crmDeal.delete({ where: { id } });
+    return res.status(204).send();
   }
 
   async createStage(req, res) {
@@ -969,6 +1268,52 @@ class CrmController {
 
       const data = {};
       const history = [];
+      let transferHistory = null;
+      const allowedDeal = await prisma.crmDeal.findFirst({
+        where: { id, ...accessWhere(req.user) },
+        include: {
+          responsibleUser: {
+            select: {
+              name: true
+            }
+          }
+        }
+      });
+      if (!allowedDeal) {
+        return res.status(404).json({ error: 'Negociacao nao encontrada' });
+      }
+      data.updatedByUserId = req.user.id;
+
+      if (req.body.responsibleUserId !== undefined) {
+        const responsibleUserId = req.body.responsibleUserId === null
+          ? null
+          : Number(req.body.responsibleUserId);
+        const target = responsibleUserId
+          ? await prisma.user.findUnique({ where: { id: responsibleUserId } })
+          : null;
+
+        if (
+          responsibleUserId !== null &&
+          (!Number.isInteger(responsibleUserId) || !canAssign(req.user, target))
+        ) {
+          return res.status(403).json({
+            error: 'Responsavel inexistente, inativo ou nao permitido'
+          });
+        }
+
+        data.responsibleUserId = responsibleUserId;
+        data.owner = null;
+
+        if (allowedDeal.responsibleUserId !== responsibleUserId) {
+          transferHistory = {
+            previousResponsibleUserId: allowedDeal.responsibleUserId,
+            previousResponsibleName:
+              allowedDeal.responsibleUser?.name || 'Sem responsavel',
+            responsibleUserId,
+            responsibleName: target?.name || 'Sem responsavel'
+          };
+        }
+      }
 
       if (req.body.stageId !== undefined) {
         const stageId = Number(req.body.stageId);
@@ -1041,7 +1386,6 @@ class CrmController {
         'plan',
         'priorityLevel',
         'cardColor',
-        'owner',
         'notes',
         'chatmixId',
         'sgpId'
@@ -1078,6 +1422,22 @@ class CrmController {
             dealId: id,
             eventType: 'deal_updated',
             message
+          }
+        });
+      }
+
+      if (transferHistory) {
+        await prisma.crmDealHistory.create({
+          data: {
+            dealId: id,
+            eventType: 'responsible_transferred',
+            message: `Responsavel alterado de ${transferHistory.previousResponsibleName} para ${transferHistory.responsibleName} por ${req.user.name}`,
+            metadata: {
+              previousResponsibleUserId:
+                transferHistory.previousResponsibleUserId,
+              responsibleUserId: transferHistory.responsibleUserId,
+              changedByUserId: req.user.id
+            }
           }
         });
       }

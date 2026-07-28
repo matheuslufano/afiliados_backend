@@ -46,7 +46,7 @@ class AuthController {
         }
       });
 
-      if (!user || user.password !== password) {
+      if (!user || !user.active || user.password !== password) {
         return res.status(401).json({
           error: 'E-mail ou senha invalidos'
         });
@@ -59,7 +59,9 @@ class AuthController {
           name: user.name,
           email: user.email,
           city: user.city,
-          photoUrl: user.photoUrl
+          photoUrl: user.photoUrl,
+          role: user.role,
+          teamId: user.teamId
         }
       });
     } catch (error) {

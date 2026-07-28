@@ -89,6 +89,6 @@ Se preferir usar outra classe no botao, informe o seletor no script:
 4. Na landing com `?ref=CODIGO`, o botao deve apontar para `/links/CODIGO/whatsapp`.
 5. Divulgue sempre o link do backend (`/r/CODIGO`), nunca a URL direta do WordPress.
 
-Observacao: links antigos salvos com o dominio anterior passam a aparecer no
+Observação: links antigos salvos com o dominio anterior passam a aparecer no
 painel com o dominio da requisicao atual. `APP_URL` fica como fallback quando a
 API nao conseguir inferir o dominio pela requisicao.

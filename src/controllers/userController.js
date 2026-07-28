@@ -23,6 +23,9 @@ function formatUser(user) {
     email: user.email,
     city: user.city,
     photoUrl: user.photoUrl,
+    role: user.role,
+    active: user.active,
+    teamId: user.teamId,
     createdAt: user.createdAt
   };
 }
@@ -54,6 +57,9 @@ class UserController {
       const password = String(req.body.password || '').trim();
       const city = String(req.body.city || '').trim();
       const photoUrl = String(req.body.photoUrl || '').trim();
+      const role = ['ADMIN', 'MANAGER', 'USER'].includes(req.body.role)
+        ? req.body.role
+        : 'USER';
 
       if (!name || !email || !password) {
         return res.status(400).json({
@@ -73,7 +79,8 @@ class UserController {
           email,
           password,
           city: city || null,
-          photoUrl: photoUrl || null
+          photoUrl: photoUrl || null,
+          role
         }
       });
 
@@ -134,6 +141,14 @@ class UserController {
 
       if (req.body.photoUrl !== undefined) {
         data.photoUrl = String(req.body.photoUrl || '').trim() || null;
+      }
+
+      if (req.body.role !== undefined && ['ADMIN', 'MANAGER', 'USER'].includes(req.body.role)) {
+        data.role = req.body.role;
+      }
+
+      if (req.body.active !== undefined) {
+        data.active = Boolean(req.body.active);
       }
 
       if (req.body.password !== undefined) {

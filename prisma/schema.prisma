@@ -14,9 +14,30 @@ model User {
   password  String
   city      String?
   photoUrl  String?
+  role      String   @default("USER")
+  active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  teamId Int?
+  team   CrmTeam? @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
   links Link[]
+  createdCrmDeals     CrmDeal[]        @relation("CrmDealCreatedBy")
+  responsibleCrmDeals CrmDeal[]        @relation("CrmDealResponsible")
+  updatedCrmDeals     CrmDeal[]        @relation("CrmDealUpdatedBy")
+  savedCrmFilters     SavedCrmFilter[]
+
+  @@index([teamId, active])
+}
+
+model CrmTeam {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
 }
 
 model Affiliate {
@@ -250,6 +271,12 @@ model CrmDeal {
   link         Link? @relation(fields: [linkId], references: [id])
   conversionId Int? @unique
   conversion   Conversion? @relation(fields: [conversionId], references: [id])
+  createdByUserId Int?
+  createdByUser   User? @relation("CrmDealCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  responsibleUserId Int?
+  responsibleUser   User? @relation("CrmDealResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+  updatedByUserId Int?
+  updatedByUser   User? @relation("CrmDealUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   tasks       CrmDealTask[]
   history     CrmDealHistory[]
@@ -260,6 +287,26 @@ model CrmDeal {
   @@index([statusId])
   @@index([affiliateId])
   @@index([createdAt])
+  @@index([createdByUserId])
+  @@index([responsibleUserId])
+}
+
+model SavedCrmFilter {
+  id         Int      @id @default(autoincrement())
+  name       String
+  funnelId   Int?
+  conditions Json
+  sort       Json?
+  visibility String   @default("PRIVATE")
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  ownerUserId Int
+  owner       User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId, isDefault])
+  @@index([visibility])
 }
 
 model CrmDealTask {
