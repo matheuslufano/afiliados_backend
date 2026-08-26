@@ -143,7 +143,13 @@ class UserController {
         data.photoUrl = String(req.body.photoUrl || '').trim() || null;
       }
 
-      if (req.body.role !== undefined && ['ADMIN', 'MANAGER', 'USER'].includes(req.body.role)) {
+      if (req.body.role !== undefined) {
+        if (!['ADMIN', 'MANAGER', 'USER'].includes(req.body.role)) {
+          return res.status(400).json({
+            error: 'Nivel de acesso invalido'
+          });
+        }
+
         data.role = req.body.role;
       }
 

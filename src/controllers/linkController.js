@@ -638,6 +638,7 @@ class LinkController {
           latestClickAt: latestClick?.clickedAt || null,
           conversionEvents: link.conversions.map(conversion => ({
             id: conversion.id,
+            attendanceId: conversion.attendanceId,
             type: conversion.type,
             product: conversion.product,
             destination: conversion.destination,

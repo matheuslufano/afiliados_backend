@@ -40,18 +40,8 @@ function isManager(user) {
 }
 
 function accessWhere(user) {
-  if (user.role === 'ADMIN') {
+  if (isManager(user)) {
     return {};
-  }
-
-  if (user.role === 'MANAGER' && user.teamId) {
-    return {
-      OR: [
-        { responsibleUserId: user.id },
-        { responsibleUser: { teamId: user.teamId } },
-        { responsibleUserId: null }
-      ]
-    };
   }
 
   return { responsibleUserId: user.id };
@@ -59,12 +49,6 @@ function accessWhere(user) {
 
 function scopeWhere(user, scope, requestedUserId) {
   if (requestedUserId) {
-    if (!isManager(user) && requestedUserId !== user.id) {
-      const error = new Error('Nao e permitido consultar negociacoes de outro usuario');
-      error.status = 403;
-      throw error;
-    }
-
     return { responsibleUserId: requestedUserId };
   }
 
@@ -73,11 +57,6 @@ function scopeWhere(user, scope, requestedUserId) {
   }
 
   if (scope === 'unassigned') {
-    if (!isManager(user)) {
-      const error = new Error('Somente gestores podem consultar negociacoes sem responsavel');
-      error.status = 403;
-      throw error;
-    }
     return { responsibleUserId: null };
   }
 
@@ -164,7 +143,15 @@ function orderBy(sort) {
 }
 
 function canAssign(user, target) {
-  return Boolean(user?.id && target?.active);
+  if (!user?.id || !target?.active) {
+    return false;
+  }
+
+  if (isManager(user)) {
+    return true;
+  }
+
+  return target.id === user.id;
 }
 
 module.exports = {

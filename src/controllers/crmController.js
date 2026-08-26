@@ -783,11 +783,11 @@ class CrmController {
         deals: deals.map(formatDeal),
         currentUser: req.user,
         permissions: {
-          canViewAll: req.user.role === 'ADMIN',
+          canViewAll: isManager(req.user),
           canViewTeam: isManager(req.user) && Boolean(req.user.teamId),
           canViewUnassigned: isManager(req.user),
           canShareFilters: isManager(req.user),
-          canTransfer: true
+          canTransfer: isManager(req.user)
         },
         sync
       });
@@ -841,7 +841,7 @@ class CrmController {
         teamId: true
       }
     });
-    return res.json(users);
+    return res.json(users.filter((user) => canAssign(req.user, user)));
   }
 
   async createDeal(req, res) {
@@ -940,6 +940,10 @@ class CrmController {
 
   async transferDeal(req, res) {
     try {
+      if (!isManager(req.user)) {
+        return res.status(403).json({ error: 'Somente gestores podem transferir negociacoes' });
+      }
+
       const id = Number(req.params.id);
       const responsibleUserId = req.body.responsibleUserId === null
         ? null
@@ -1288,6 +1292,16 @@ class CrmController {
         const responsibleUserId = req.body.responsibleUserId === null
           ? null
           : Number(req.body.responsibleUserId);
+
+        if (
+          allowedDeal.responsibleUserId !== responsibleUserId &&
+          !isManager(req.user)
+        ) {
+          return res.status(403).json({
+            error: 'Somente gestores podem transferir negociacoes'
+          });
+        }
+
         const target = responsibleUserId
           ? await prisma.user.findUnique({ where: { id: responsibleUserId } })
           : null;

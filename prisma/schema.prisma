@@ -116,6 +116,7 @@ model Click {
 
 model Conversion {
   id              Int      @id @default(autoincrement())
+  attendanceId    String?  @unique
   type            String   @default("whatsapp")
   product         String?
   destination     String?

@@ -2,6 +2,10 @@ const crypto = require('node:crypto');
 
 const prisma = require('../database/prisma');
 const {
+  ChatmixApiError,
+  validateChatmixAttendance
+} = require('../services/chatmixApi');
+const {
   publishRealtimeEvent
 } = require('../utils/realtimeEvents');
 
@@ -581,6 +585,14 @@ async function conversionFromAttendance(attendanceId, linkId, visitorData) {
     return null;
   }
 
+  const directConversion = await prisma.conversion.findUnique({
+    where: { attendanceId }
+  });
+
+  if (directConversion) {
+    return directConversion;
+  }
+
   try {
     const log = await prisma.webhookLog.findFirst({
       where: {
@@ -664,16 +676,61 @@ class ChatmixWebhookController {
       }
 
       const payload = requestPayload(req);
-      const visitorData = chatmixVisitorData(payload);
       const attendanceId = chatmixAttendanceId(payload);
+      let apiAttendance;
+
+      try {
+        apiAttendance = await validateChatmixAttendance(attendanceId);
+      } catch (error) {
+        const validationError =
+          error instanceof ChatmixApiError
+            ? error
+            : new ChatmixApiError('Falha ao validar atendimento no Chatmix');
+
+        await persistChatmixWebhookEvent(req, payload, {
+          status: 'validation_failed',
+          reason: validationError.code,
+          attendanceId
+        });
+
+        return res.status(validationError.httpStatus).json({
+          status: 'validation_failed',
+          error: validationError.message,
+          code: validationError.code,
+          attendanceId
+        });
+      }
+
+      const webhookVisitorData = chatmixVisitorData(payload);
+      const apiVisitorData = visitorDataFromPayload(apiAttendance.data);
+      const visitorData = {
+        visitorName:
+          webhookVisitorData.visitorName || apiVisitorData.visitorName,
+        visitorPhone:
+          webhookVisitorData.visitorPhone || apiVisitorData.visitorPhone,
+        visitorDocument:
+          webhookVisitorData.visitorDocument || apiVisitorData.visitorDocument,
+        visitorCity:
+          webhookVisitorData.visitorCity || apiVisitorData.visitorCity,
+        source: webhookVisitorData.source || apiVisitorData.source || 'chatmix',
+        affiliateName: webhookVisitorData.affiliateName
+      };
+      const lookupPayload = {
+        ...payload,
+        apiAttendance: apiAttendance.data
+      };
       const shortCode =
-        extractShortCode(payload) || shortCodeFromChatmixChannel(payload);
+        extractShortCode(lookupPayload) || shortCodeFromChatmixChannel(payload);
       let link = null;
 
       if (shortCode) {
         link = await prisma.link.findUnique({
           where: {
             shortCode
+          },
+          include: {
+            affiliate: true,
+            campaign: true
           }
         });
 
@@ -724,6 +781,10 @@ class ChatmixWebhookController {
         link = await prisma.link.findUnique({
           where: {
             id: existingConversion.linkId
+          },
+          include: {
+            affiliate: true,
+            campaign: true
           }
         });
       }
@@ -735,14 +796,20 @@ class ChatmixWebhookController {
           reason: 'link not resolved',
           crmDealId: crmAttendance?.deal?.id || null,
           shortCode,
+          affiliateId: link?.affiliateId || null,
+          affiliateName: link?.affiliate?.name || null,
+          campaignId: link?.campaignId || null,
+          campaignName: link?.campaign?.name || null,
           visitorPhone: visitorData.visitorPhone,
-          visitorDocument: visitorData.visitorDocument
+          visitorDocument: visitorData.visitorDocument,
+          apiValidated: true
         });
 
         return res.status(crmAttendance?.created ? 201 : 200).json({
           status,
           reason: 'link not resolved',
           attendanceId,
+          apiValidated: true,
           crmDealId: crmAttendance?.deal?.id || null,
           shortCode,
           visitorPhone: visitorData.visitorPhone,
@@ -768,11 +835,18 @@ class ChatmixWebhookController {
             where: {
               id: existingConversion.id
             },
-            data: conversionData
-          })
-        : await prisma.conversion.create({
             data: {
               ...conversionData,
+              attendanceId,
+              linkId: link.id
+            }
+          })
+        : await prisma.conversion.upsert({
+            where: { attendanceId },
+            update: conversionData,
+            create: {
+              ...conversionData,
+              attendanceId,
               linkId: link.id
             }
           });
@@ -794,14 +868,20 @@ class ChatmixWebhookController {
         crmDealId: crmAttendance?.deal?.id || null,
         linkId: link.id,
         shortCode: link.shortCode,
+        affiliateId: link.affiliateId || null,
+        affiliateName: link.affiliate?.name || null,
+        campaignId: link.campaignId || null,
+        campaignName: link.campaign?.name || null,
         visitorName: conversion.visitorName,
         visitorPhone: conversion.visitorPhone,
-        visitorDocument: conversion.visitorDocument
+        visitorDocument: conversion.visitorDocument,
+        apiValidated: true
       });
 
       publishRealtimeEvent('link-converted', {
         linkId: link.id,
         shortCode: link.shortCode,
+        attendanceId,
         conversionId: conversion.id,
         crmDealId: crmAttendance?.deal?.id || null,
         product: conversion.product,
@@ -811,6 +891,7 @@ class ChatmixWebhookController {
       return res.status(existingConversion ? 200 : 201).json({
         status: existingConversion ? 'updated' : 'received',
         attendanceId,
+        apiValidated: true,
         conversionId: conversion.id,
         linkId: link.id,
         shortCode: link.shortCode,
