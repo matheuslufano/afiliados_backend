@@ -74,6 +74,18 @@ function formatCampaign(req, campaign) {
     promoLink: buildAffiliateUrl(req, link.shortCode),
     clicks: link.clicks.length,
     conversions: link.conversions?.length || 0,
+    conversionEvents: (link.conversions || []).map((conversion) => ({
+      id: conversion.id,
+      customerName: conversion.visitorName || 'Cliente não identificado',
+      customerPhone: conversion.visitorPhone || null,
+      convertedAt: conversion.convertedAt,
+      convertedInSgp: Boolean(
+        conversion.crmDeal?.sgpId ||
+          [conversion.type, conversion.source, conversion.product]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes('sgp'))
+      )
+    })),
     whatsappLink: buildWhatsappTrackingUrl(req, link.shortCode),
     affiliate: link.affiliate
       ? {
@@ -241,7 +253,18 @@ class CampaignController {
             include: {
               affiliate: true,
               clicks: true,
-              conversions: true
+              conversions: {
+                orderBy: {
+                  convertedAt: 'desc'
+                },
+                include: {
+                  crmDeal: {
+                    select: {
+                      sgpId: true
+                    }
+                  }
+                }
+              }
             }
           }
         }

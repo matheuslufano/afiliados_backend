@@ -507,6 +507,10 @@ async function createOrUpdateCrmDealFromAttendance(
             : {}),
           ...(link?.id ? { linkId: link.id } : {}),
           ...(link?.affiliateId ? { affiliateId: link.affiliateId } : {}),
+          ...(link?.shortCode ? { trackingCode: link.shortCode } : {}),
+          ...(link?.campaign?.name || link?.name
+            ? { campaignName: link.campaign?.name || link.name }
+            : {}),
           lastInteractionAt: now
         }
       });
@@ -533,7 +537,9 @@ async function createOrUpdateCrmDealFromAttendance(
         statusId: placement.status.id,
         sourceId: placement.source.id,
         linkId: link?.id || null,
-        affiliateId: link?.affiliateId || null
+        affiliateId: link?.affiliateId || null,
+        trackingCode: link?.shortCode || null,
+        campaignName: link?.campaign?.name || link?.name || null
       }
     });
 
@@ -857,7 +863,9 @@ class ChatmixWebhookController {
           data: {
             conversionId: conversion.id,
             linkId: link.id,
-            affiliateId: link.affiliateId || null
+            affiliateId: link.affiliateId || null,
+            trackingCode: link.shortCode,
+            campaignName: link.campaign?.name || link.name || null
           }
         });
       }
@@ -884,6 +892,8 @@ class ChatmixWebhookController {
         attendanceId,
         conversionId: conversion.id,
         crmDealId: crmAttendance?.deal?.id || null,
+        affiliateId: link.affiliateId || null,
+        affiliateName: link.affiliate?.name || null,
         product: conversion.product,
         convertedAt: conversion.convertedAt
       });
@@ -895,6 +905,8 @@ class ChatmixWebhookController {
         conversionId: conversion.id,
         linkId: link.id,
         shortCode: link.shortCode,
+        affiliateId: link.affiliateId || null,
+        affiliateName: link.affiliate?.name || null,
         visitorName: conversion.visitorName,
         visitorPhone: conversion.visitorPhone,
         visitorDocument: conversion.visitorDocument

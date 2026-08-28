@@ -43,6 +43,109 @@ function normalizeDocument(value) {
   return document || null;
 }
 
+function normalizeContactName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function contactIdentity(conversion) {
+  const document = normalizeDocument(conversion.visitorDocument);
+  if (document) return `document:${document}`;
+
+  const phone = normalizePhone(conversion.visitorPhone);
+  if (phone) return `phone:${phone}`;
+
+  const name = normalizeContactName(conversion.visitorName);
+  return name ? `name:${name}` : null;
+}
+
+function contactsFromAffiliateLinks(links) {
+  const contacts = new Map();
+
+  links.forEach((link) => {
+    link.conversionEvents.forEach((conversion) => {
+      const identity = contactIdentity(conversion);
+      if (!identity) return;
+
+      const eventDate = new Date(conversion.convertedAt);
+      const eventTime = Number.isNaN(eventDate.getTime())
+        ? 0
+        : eventDate.getTime();
+      const current = contacts.get(identity) || {
+        id: identity,
+        name: null,
+        phone: null,
+        document: null,
+        city: null,
+        firstAttendanceAt: conversion.convertedAt,
+        lastAttendanceAt: conversion.convertedAt,
+        firstAttendanceTime: eventTime,
+        lastAttendanceTime: eventTime,
+        attendanceKeys: new Set(),
+        attendanceIds: new Set(),
+        shortCodes: new Set(),
+        linkIds: new Set(),
+        conversionIds: new Set()
+      };
+
+      if (!current.name && conversion.visitorName) {
+        current.name = conversion.visitorName;
+      }
+      if (!current.phone && conversion.visitorPhone) {
+        current.phone = conversion.visitorPhone;
+      }
+      if (!current.document && conversion.visitorDocument) {
+        current.document = conversion.visitorDocument;
+      }
+      if (!current.city && conversion.visitorCity) {
+        current.city = conversion.visitorCity;
+      }
+
+      if (eventTime && eventTime < current.firstAttendanceTime) {
+        current.firstAttendanceTime = eventTime;
+        current.firstAttendanceAt = conversion.convertedAt;
+      }
+      if (eventTime && eventTime > current.lastAttendanceTime) {
+        current.lastAttendanceTime = eventTime;
+        current.lastAttendanceAt = conversion.convertedAt;
+      }
+
+      current.attendanceKeys.add(
+        conversion.attendanceId || `conversion:${conversion.id}`
+      );
+      if (conversion.attendanceId) {
+        current.attendanceIds.add(conversion.attendanceId);
+      }
+      current.shortCodes.add(link.shortCode);
+      current.linkIds.add(link.id);
+      current.conversionIds.add(conversion.id);
+      contacts.set(identity, current);
+    });
+  });
+
+  return [...contacts.values()]
+    .sort((first, second) => second.lastAttendanceTime - first.lastAttendanceTime)
+    .map((contact) => ({
+      id: contact.id,
+      name: contact.name,
+      phone: contact.phone,
+      document: contact.document,
+      city: contact.city,
+      totalAttendances: contact.attendanceKeys.size,
+      totalConversions: contact.conversionIds.size,
+      firstAttendanceAt: contact.firstAttendanceAt,
+      lastAttendanceAt: contact.lastAttendanceAt,
+      attendanceIds: [...contact.attendanceIds],
+      shortCodes: [...contact.shortCodes],
+      linkIds: [...contact.linkIds],
+      conversionIds: [...contact.conversionIds]
+    }));
+}
+
 function firstRequestValue(req, keys) {
   for (const key of keys) {
     const value = req.query?.[key] ?? req.body?.[key];
@@ -678,6 +781,7 @@ class LinkController {
           }))
         };
       });
+      const contacts = contactsFromAffiliateLinks(formattedLinks);
 
       return res.json({
         affiliate: affiliate.name,
@@ -686,6 +790,8 @@ class LinkController {
         totalLinks: affiliate.links.length,
         totalClicks,
         totalConversions,
+        totalContacts: contacts.length,
+        contacts,
         conversionEvents: formattedLinks.flatMap(
           link => link.conversionEvents
         ),
