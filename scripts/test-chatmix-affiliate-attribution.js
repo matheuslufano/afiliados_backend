@@ -4,10 +4,20 @@ const http = require('node:http');
 
 require('dotenv').config();
 
-const attendanceId = `sim-${Date.now()}`;
+const simulationCount = Math.min(
+  50,
+  Math.max(1, Number.parseInt(process.env.SIMULATION_CLIENTS || '1', 10) || 1)
+);
+const simulationStamp = Date.now();
 const shortCode = crypto.randomBytes(4).toString('hex');
 const uniqueSuffix = crypto.randomBytes(4).toString('hex');
 const keepTestData = process.env.KEEP_TEST_DATA === '1';
+const clients = Array.from({ length: simulationCount }, (_, index) => ({
+  attendanceId: `sim-${simulationStamp}-${index + 1}`,
+  name: `Cliente Chatmix ${index + 1}`,
+  phone: `639${String(90000000 + index).padStart(8, '0')}`
+}));
+const attendanceIds = clients.map((client) => client.attendanceId);
 
 process.env.CHATMIX_API_X_AUTH = 'simulation-token';
 process.env.CHATMIX_WEBHOOK_SECRET = 'simulation-webhook-secret';
@@ -37,9 +47,9 @@ function close(server) {
 }
 
 async function cleanup() {
-  await prisma.webhookLog.deleteMany({ where: { attendanceId } });
-  await prisma.crmDeal.deleteMany({ where: { chatmixId: attendanceId } });
-  await prisma.conversion.deleteMany({ where: { attendanceId } });
+  await prisma.webhookLog.deleteMany({ where: { attendanceId: { in: attendanceIds } } });
+  await prisma.crmDeal.deleteMany({ where: { chatmixId: { in: attendanceIds } } });
+  await prisma.conversion.deleteMany({ where: { attendanceId: { in: attendanceIds } } });
   if (link) await prisma.link.deleteMany({ where: { id: link.id } });
   if (affiliate) {
     await prisma.affiliate.deleteMany({ where: { id: affiliate.id } });
@@ -77,6 +87,10 @@ async function run() {
 
   fakeChatmixServer = http.createServer((req, res) => {
     assert.equal(req.headers['x-auth'], 'simulation-token');
+    const client = clients.find((item) =>
+      req.url.includes(encodeURIComponent(item.attendanceId))
+    );
+    assert.ok(client, `Atendimento inesperado na API Chatmix: ${req.url}`);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(
       JSON.stringify({
@@ -87,7 +101,7 @@ async function run() {
                 id: 'first-message',
                 type: 'received',
                 createdAt: new Date().toISOString(),
-                sender: { name: 'Cliente da simulacao' },
+                sender: { name: client.name },
                 content: {
                   type: 'text',
                   content: `Ola! Codigo do afiliado: [${shortCode}]`
@@ -105,7 +119,7 @@ async function run() {
 
   const realtimeEvents = [];
   const unsubscribe = subscribeRealtimeEvents((event) => {
-    if (event.payload?.attendanceId === attendanceId) {
+    if (attendanceIds.includes(event.payload?.attendanceId)) {
       realtimeEvents.push(event);
     }
   });
@@ -114,38 +128,41 @@ async function run() {
   backendServer = http.createServer(app);
   const backendPort = await listen(backendServer);
 
-  const webhookResponse = await fetch(
-    `http://127.0.0.1:${backendPort}/webhooks/chatmix`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-chatmix-secret': 'simulation-webhook-secret'
-      },
-      body: JSON.stringify({
-        attendance_id: attendanceId,
-        event: 'attendance_started',
-        channel_data: { name: 'WhatsApp Teste', type: 'whatsapp' },
-        client_data: { name: 'Cliente da simulacao', user: '63999990000' },
-        data: { 'Nome Cliente': 'Cliente da simulacao' }
-      })
-    }
-  );
-  const webhookBody = await webhookResponse.json();
-  assert.equal(webhookResponse.status, 201);
-  assert.equal(webhookBody.shortCode, shortCode);
-  assert.equal(webhookBody.affiliateId, affiliate.id);
+  const webhookResults = [];
+  for (const client of clients) {
+    const response = await fetch(
+      `http://127.0.0.1:${backendPort}/webhooks/chatmix`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-chatmix-secret': 'simulation-webhook-secret'
+        },
+        body: JSON.stringify({
+          attendance_id: client.attendanceId,
+          event: 'attendance_started',
+          channel_data: { name: 'WhatsApp Teste', type: 'whatsapp' },
+          client_data: { name: client.name, user: client.phone },
+          data: { 'Nome Cliente': client.name }
+        })
+      }
+    );
+    const body = await response.json();
+    assert.equal(response.status, 201);
+    assert.equal(body.shortCode, shortCode);
+    assert.equal(body.affiliateId, affiliate.id);
+    webhookResults.push({ response, body, client });
+  }
 
-  const webhookLog = await prisma.webhookLog.findFirst({
-    where: { provider: 'chatmix', attendanceId },
-    orderBy: { receivedAt: 'desc' }
+  const webhookLogs = await prisma.webhookLog.findMany({
+    where: { provider: 'chatmix', attendanceId: { in: attendanceIds } }
   });
-  const conversion = await prisma.conversion.findUnique({
-    where: { attendanceId },
+  const conversions = await prisma.conversion.findMany({
+    where: { attendanceId: { in: attendanceIds } },
     include: { link: { include: { affiliate: true } } }
   });
-  const crmDeal = await prisma.crmDeal.findFirst({
-    where: { chatmixId: attendanceId },
+  const crmDeals = await prisma.crmDeal.findMany({
+    where: { chatmixId: { in: attendanceIds } },
     include: { affiliate: true, link: true }
   });
   const reportResponse = await fetch(
@@ -153,17 +170,30 @@ async function run() {
   );
   const report = await reportResponse.json();
 
-  assert.equal(webhookLog.shortCode, shortCode);
-  assert.equal(webhookLog.linkId, link.id);
-  assert.equal(webhookLog.conversionId, conversion.id);
-  assert.equal(conversion.link.affiliateId, affiliate.id);
-  assert.equal(conversion.link.affiliate.name, affiliate.name);
-  assert.equal(crmDeal.trackingCode, shortCode);
-  assert.equal(crmDeal.affiliateId, affiliate.id);
-  assert.equal(crmDeal.linkId, link.id);
-  assert.equal(crmDeal.conversionId, conversion.id);
-  assert.equal(report.totalConversions, 1);
-  assert.equal(report.conversionEvents[0].shortCode, shortCode);
+  assert.equal(webhookLogs.length, simulationCount);
+  assert.equal(conversions.length, simulationCount);
+  assert.equal(crmDeals.length, simulationCount);
+  webhookLogs.forEach((log) => {
+    assert.equal(log.shortCode, shortCode);
+    assert.equal(log.linkId, link.id);
+    assert.ok(log.conversionId);
+  });
+  conversions.forEach((conversion) => {
+    assert.equal(conversion.link.affiliateId, affiliate.id);
+    assert.equal(conversion.link.affiliate.name, affiliate.name);
+  });
+  crmDeals.forEach((deal) => {
+    assert.equal(deal.trackingCode, shortCode);
+    assert.equal(deal.affiliateId, affiliate.id);
+    assert.equal(deal.linkId, link.id);
+    assert.ok(deal.conversionId);
+  });
+  assert.equal(report.totalConversions, simulationCount);
+  assert.equal(report.totalContacts, simulationCount);
+  assert.equal(report.contacts.length, simulationCount);
+  report.conversionEvents.forEach((conversion) => {
+    assert.equal(conversion.shortCode, shortCode);
+  });
   assert.equal(
     realtimeEvents.some(
       (event) =>
@@ -179,27 +209,35 @@ async function run() {
     JSON.stringify(
       {
         resultado: 'SUCESSO',
-        webhook: {
-          statusHttp: webhookResponse.status,
-          attendanceId,
+        webhooks: webhookResults.map(({ response, body, client }) => ({
+          statusHttp: response.status,
+          attendanceId: client.attendanceId,
+          cliente: client.name,
+          telefone: client.phone,
           shortCode,
-          conversionId: conversion.id,
-          webhookLogId: webhookLog.id
-        },
+          conversionId: body.conversionId,
+          webhookLogId: body.webhookLogId
+        })),
         vinculo: {
           linkId: link.id,
           affiliateId: affiliate.id,
           affiliateName: affiliate.name
         },
         crm: {
-          dealId: crmDeal.id,
-          trackingCode: crmDeal.trackingCode,
-          affiliateId: crmDeal.affiliateId
+          negociosCriados: crmDeals.length,
+          trackingCode: shortCode,
+          affiliateId: affiliate.id
         },
         relatorio: {
           affiliate: report.affiliate,
           totalConversions: report.totalConversions,
-          codigoNaConversao: report.conversionEvents[0].shortCode
+          totalContacts: report.totalContacts,
+          clientesAlcancados: report.contacts.map((contact) => ({
+            nome: contact.name,
+            telefone: contact.phone,
+            atendimentos: contact.totalAttendances
+          })),
+          codigoNasConversoes: shortCode
         },
         tempoReal: realtimeEvents.map((event) => event.type),
         dadosPreservados: keepTestData

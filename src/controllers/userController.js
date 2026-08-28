@@ -224,7 +224,12 @@ class UserController {
         include: {
           links: {
             select: {
-              id: true
+              id: true,
+              conversions: {
+                select: {
+                  id: true
+                }
+              }
             }
           }
         }
@@ -237,8 +242,44 @@ class UserController {
       }
 
       const linkIds = user.links.map((link) => link.id);
+      const conversionIds = user.links.flatMap((link) =>
+        link.conversions.map((conversion) => conversion.id)
+      );
 
       await prisma.$transaction([
+        // O histórico comercial e os logs devem continuar disponíveis mesmo
+        // depois que o usuário e seus links forem removidos.
+        prisma.crmDeal.updateMany({
+          where: {
+            OR: [
+              { linkId: { in: linkIds } },
+              { conversionId: { in: conversionIds } }
+            ]
+          },
+          data: {
+            linkId: null,
+            conversionId: null
+          }
+        }),
+        prisma.webhookLog.updateMany({
+          where: {
+            OR: [
+              { linkId: { in: linkIds } },
+              { conversionId: { in: conversionIds } }
+            ]
+          },
+          data: {
+            linkId: null,
+            conversionId: null
+          }
+        }),
+        prisma.conversion.deleteMany({
+          where: {
+            linkId: {
+              in: linkIds
+            }
+          }
+        }),
         prisma.click.deleteMany({
           where: {
             linkId: {

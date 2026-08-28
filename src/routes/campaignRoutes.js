@@ -13,6 +13,11 @@ router.get(
   campaignController.list
 );
 
+router.put(
+  '/campaigns/:id',
+  campaignController.update
+);
+
 router.delete(
   '/campaigns/:id',
   campaignController.delete
