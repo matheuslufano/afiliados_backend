@@ -57,9 +57,10 @@ class UserController {
       const password = String(req.body.password || '').trim();
       const city = String(req.body.city || '').trim();
       const photoUrl = String(req.body.photoUrl || '').trim();
-      const role = ['ADMIN', 'MANAGER', 'USER'].includes(req.body.role)
+      const requestedRole = ['ADMIN', 'MANAGER', 'USER'].includes(req.body.role)
         ? req.body.role
         : 'USER';
+      const role = req.user?.role === 'ADMIN' ? requestedRole : 'USER';
 
       if (!name || !email || !password) {
         return res.status(400).json({
@@ -143,7 +144,7 @@ class UserController {
         data.photoUrl = String(req.body.photoUrl || '').trim() || null;
       }
 
-      if (req.body.role !== undefined) {
+      if (req.body.role !== undefined && req.user?.role === 'ADMIN') {
         if (!['ADMIN', 'MANAGER', 'USER'].includes(req.body.role)) {
           return res.status(400).json({
             error: 'Nivel de acesso invalido'

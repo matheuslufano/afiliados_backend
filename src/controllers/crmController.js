@@ -868,7 +868,7 @@ class CrmController {
           ? null
           : Number(req.body.responsibleUserId);
         if (requestedId === null && !isManager(req.user)) {
-          return res.status(403).json({ error: 'Somente gestores podem criar negociacoes sem responsavel' });
+          responsibleUserId = req.user.id;
         }
         if (requestedId !== null && requestedId !== req.user.id) {
           const target = await prisma.user.findUnique({ where: { id: requestedId } });
@@ -876,7 +876,9 @@ class CrmController {
             return res.status(403).json({ error: 'Responsavel nao permitido' });
           }
         }
-        responsibleUserId = requestedId;
+        if (requestedId !== null || isManager(req.user)) {
+          responsibleUserId = requestedId;
+        }
       }
 
       const sourceName = String(req.body.source || 'Manual').trim();

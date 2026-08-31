@@ -1,6 +1,7 @@
 const express = require('express');
 
 const router = express.Router();
+const { requireAuth } = require('../middleware/auth');
 
 const affiliateController =
   require(
@@ -9,6 +10,7 @@ const affiliateController =
 
 router.post(
   '/affiliate',
+  requireAuth,
   affiliateController.create
 );
 
@@ -19,6 +21,7 @@ router.get(
 
 router.put(
   '/affiliate/:id',
+  requireAuth,
   affiliateController.update
 );
 

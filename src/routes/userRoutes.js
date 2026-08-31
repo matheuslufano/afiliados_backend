@@ -13,14 +13,12 @@ router.get(
 router.post(
   '/users',
   requireAuth,
-  requireAdmin,
   userController.create
 );
 
 router.put(
   '/users/:id',
   requireAuth,
-  requireAdmin,
   userController.update
 );
 
