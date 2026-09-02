@@ -1,7 +1,7 @@
 const QRCode = require('qrcode');
 const prisma = require('../database/prisma');
 const { generateAffiliateCode } = require('../utils/affiliateCodes');
-const { buildAffiliateUrl } = require('../utils/publicUrls');
+const { buildAffiliateUrl, getDefaultLandingPageUrl } = require('../utils/publicUrls');
 const {
   DEFAULT_IDENTIFICATION_TEMPLATE,
   buildWhatsAppMessage,
@@ -17,6 +17,9 @@ const includeRelations = {
   createdBy: { select: { id: true, name: true } }
 };
 
+const INDIVIDUAL_WHATSAPP_CAMPAIGN_NAME = 'WhatsApp individual';
+const DEFAULT_INDIVIDUAL_DESTINATION_URL = 'https://netboxfibra.com.br';
+
 function validationError(message, status = 400) {
   const error = new Error(message);
   error.status = status;
@@ -27,6 +30,21 @@ function parseRequiredId(value, label) {
   const id = Number(value);
   if (!Number.isInteger(id) || id < 1) throw validationError(`${label} inválido.`);
   return id;
+}
+
+async function getOrCreateIndividualWhatsAppCampaign() {
+  const existing = await prisma.campaign.findFirst({
+    where: { name: INDIVIDUAL_WHATSAPP_CAMPAIGN_NAME },
+    orderBy: { id: 'asc' }
+  });
+  if (existing) return existing;
+
+  return prisma.campaign.create({
+    data: {
+      name: INDIVIDUAL_WHATSAPP_CAMPAIGN_NAME,
+      destinationUrl: getDefaultLandingPageUrl() || DEFAULT_INDIVIDUAL_DESTINATION_URL
+    }
+  });
 }
 
 async function resolveContext({ campaignId, affiliateId, affiliateCodeId }) {
@@ -63,10 +81,13 @@ async function resolveContext({ campaignId, affiliateId, affiliateCodeId }) {
           where: { id: latestAffiliateLink.campaignId }
         });
       }
+      if (!campaign) {
+        campaign = await getOrCreateIndividualWhatsAppCampaign();
+      }
     }
   }
   if (!campaign) {
-    throw validationError('O afiliado precisa possuir ao menos um vínculo anterior para gerar um novo código.', 400);
+    throw validationError('Não foi possível definir o vínculo do novo código.', 500);
   }
   return { campaign, affiliate, link };
 }
@@ -199,6 +220,7 @@ module.exports = {
   create,
   format,
   includeRelations,
+  getOrCreateIndividualWhatsAppCampaign,
   resolveContext,
   update,
   validationError

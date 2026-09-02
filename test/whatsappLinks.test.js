@@ -64,6 +64,25 @@ test('infere o vínculo interno do afiliado ao gerar um novo código sem campo c
   restore(originals);
 });
 
+test('cria campanha interna ao gerar o primeiro código de um afiliado', async () => {
+  const originals = mockContext({ link: null });
+  originals.linkFindFirst = prisma.link.findFirst;
+  originals.campaignFindFirst = prisma.campaign.findFirst;
+  originals.campaignCreate = prisma.campaign.create;
+  prisma.link.findFirst = async () => null;
+  prisma.campaign.findFirst = async () => null;
+  prisma.campaign.create = async ({ data }) => ({ id: 9, ...data });
+
+  const context = await service.resolveContext({ affiliateId: 2 });
+
+  assert.equal(context.campaign.id, 9);
+  assert.equal(context.campaign.name, 'WhatsApp individual');
+  assert.match(context.campaign.destinationUrl, /^https:\/\//);
+  assert.equal(context.affiliate.id, 2);
+  assert.equal(context.link, undefined);
+  restore(originals);
+});
+
 test('novo código é criado e relacionado ao link WhatsApp', async () => {
   const originals = mockContext({ link: null });
   originals.linkCreate = prisma.link.create;
@@ -107,5 +126,7 @@ function restore(originals) {
   prisma.link.findUnique = originals.linkFind;
   if (originals.linkCreate) prisma.link.create = originals.linkCreate;
   if (originals.linkFindFirst) prisma.link.findFirst = originals.linkFindFirst;
+  if (originals.campaignFindFirst) prisma.campaign.findFirst = originals.campaignFindFirst;
+  if (originals.campaignCreate) prisma.campaign.create = originals.campaignCreate;
   if (originals.whatsAppCreate) prisma.whatsAppLink.create = originals.whatsAppCreate;
 }
