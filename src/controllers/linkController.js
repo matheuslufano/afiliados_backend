@@ -1,5 +1,5 @@
 const prisma = require('../database/prisma');
-const crypto = require('node:crypto');
+const { generateAffiliateCode } = require('../utils/affiliateCodes');
 const QRCode = require('qrcode');
 const {
   buildAffiliateUrl,
@@ -323,7 +323,7 @@ class LinkController {
       const maxAttempts = 8;
       let link;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const shortCode = crypto.randomBytes(4).toString('hex');
+        const shortCode = generateAffiliateCode();
         const affiliateUrl = buildAffiliateUrl(req, shortCode);
         try {
           link = await prisma.link.create({

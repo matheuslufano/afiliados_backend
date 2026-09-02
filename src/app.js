@@ -16,6 +16,7 @@ const sgpRoutes = require('./routes/sgpRoutes');
 const wordpressRoutes = require('./routes/wordpressRoutes');
 const eventRoutes = require('./routes/eventRoutes');
 const crmRoutes = require('./routes/crmRoutes');
+const whatsappLinkRoutes = require('./routes/whatsappLinkRoutes');
 
 const app = express();
 
@@ -38,6 +39,7 @@ app.use(sgpRoutes);
 app.use(wordpressRoutes);
 app.use(eventRoutes);
 app.use(crmRoutes);
+app.use(whatsappLinkRoutes);
 
 app.get('/', (req, res) => {
   res.send('API funcionando 🚀');

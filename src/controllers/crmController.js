@@ -838,10 +838,11 @@ class CrmController {
         email: true,
         photoUrl: true,
         role: true,
-        teamId: true
+        teamId: true,
+        active: true
       }
     });
-    return res.json(users.filter((user) => canAssign(req.user, user)));
+    return res.json(users);
   }
 
   async createDeal(req, res) {

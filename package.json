@@ -12,6 +12,7 @@
     "test:affiliate-contacts": "node scripts/test-affiliate-contacts-report.js",
     "test:delete-user": "node scripts/test-delete-user-with-conversions.js",
     "test:campaign": "node scripts/test-campaign-flow.js",
+    "test:whatsapp-links": "node --test test/whatsappLinks.test.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",

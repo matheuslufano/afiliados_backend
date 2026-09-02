@@ -161,6 +161,19 @@ function extractShortCode(body) {
     }
   }
 
+  // A primeira mensagem pode trazer o código sozinho ou em qualquer posição.
+  // A busca flexível fica restrita a texto para não confundir IDs técnicos.
+  const messageValues = findValuesByKey(body, new Set([
+    'message', 'mensagem', 'text', 'texto', 'content', 'conteudo'
+  ]));
+
+  for (const value of messageValues) {
+    const code = codeFromText(value, true);
+    if (code) {
+      return code;
+    }
+  }
+
   for (const value of collectStrings(body)) {
     const code = codeFromText(value, false, false);
     if (code) {
@@ -922,3 +935,5 @@ class ChatmixWebhookController {
 }
 
 module.exports = new ChatmixWebhookController();
+module.exports.codeFromText = codeFromText;
+module.exports.extractShortCode = extractShortCode;

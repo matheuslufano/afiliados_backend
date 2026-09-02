@@ -21,11 +21,12 @@ model User {
   teamId Int?
   team   CrmTeam? @relation(fields: [teamId], references: [id], onDelete: SetNull)
 
-  links Link[]
-  createdCrmDeals     CrmDeal[]        @relation("CrmDealCreatedBy")
-  responsibleCrmDeals CrmDeal[]        @relation("CrmDealResponsible")
-  updatedCrmDeals     CrmDeal[]        @relation("CrmDealUpdatedBy")
-  savedCrmFilters     SavedCrmFilter[]
+  links                Link[]
+  createdWhatsAppLinks WhatsAppLink[]   @relation("WhatsAppLinkCreatedBy")
+  createdCrmDeals      CrmDeal[]        @relation("CrmDealCreatedBy")
+  responsibleCrmDeals  CrmDeal[]        @relation("CrmDealResponsible")
+  updatedCrmDeals      CrmDeal[]        @relation("CrmDealUpdatedBy")
+  savedCrmFilters      SavedCrmFilter[]
 
   @@index([teamId, active])
 }
@@ -50,10 +51,11 @@ model Affiliate {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
-  links Link[]
-  crmDeals CrmDeal[]
+  links                Link[]
+  whatsappLinks        WhatsAppLink[]
+  crmDeals             CrmDeal[]
   affiliateCommissions AffiliateCommission[]
-} 
+}
 
 model Campaign {
   id             Int      @id @default(autoincrement())
@@ -61,7 +63,8 @@ model Campaign {
   destinationUrl String
   createdAt      DateTime @default(now())
 
-  links Link[]
+  links         Link[]
+  whatsappLinks WhatsAppLink[]
 }
 
 model Link {
@@ -70,20 +73,50 @@ model Link {
   originalUrl  String
   shortCode    String   @unique
   affiliateUrl String?
+  active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
   userId Int
   user   User @relation(fields: [userId], references: [id])
 
   affiliateId Int?
-  affiliate Affiliate? @relation(fields: [affiliateId], references: [id])
+  affiliate   Affiliate? @relation(fields: [affiliateId], references: [id])
 
   campaignId Int?
-  campaign Campaign? @relation(fields: [campaignId], references: [id])
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
 
-  clicks Click[]
-  conversions Conversion[]
-  crmDeals CrmDeal[]
+  clicks        Click[]
+  conversions   Conversion[]
+  crmDeals      CrmDeal[]
+  whatsappLinks WhatsAppLink[]
+}
+
+model WhatsAppLink {
+  id                     Int      @id @default(autoincrement())
+  whatsappNumber         String
+  originalMessage        String
+  finalMessage           String
+  identificationTemplate String   @default("Código do afiliado: {{codigo}}")
+  appendAffiliateCode    Boolean  @default(true)
+  whatsappUrl            String
+  channel                String   @default("whatsapp")
+  active                 Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  campaignId  Int
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  affiliateId Int
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
+  linkId      Int
+  link        Link      @relation(fields: [linkId], references: [id], onDelete: Restrict)
+  createdById Int
+  createdBy   User      @relation("WhatsAppLinkCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([campaignId, createdAt])
+  @@index([affiliateId, createdAt])
+  @@index([linkId])
+  @@index([active, createdAt])
 }
 
 model Click {
@@ -258,26 +291,26 @@ model CrmDeal {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  funnelId     Int
-  funnel       CrmFunnel @relation(fields: [funnelId], references: [id])
-  stageId      Int
-  stage        CrmStage @relation(fields: [stageId], references: [id])
-  statusId     Int
-  status       CrmDealStatus @relation(fields: [statusId], references: [id])
-  sourceId     Int?
-  source       CrmLeadSource? @relation(fields: [sourceId], references: [id])
-  affiliateId  Int?
-  affiliate    Affiliate? @relation(fields: [affiliateId], references: [id])
-  linkId       Int?
-  link         Link? @relation(fields: [linkId], references: [id])
-  conversionId Int? @unique
-  conversion   Conversion? @relation(fields: [conversionId], references: [id])
-  createdByUserId Int?
-  createdByUser   User? @relation("CrmDealCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  funnelId          Int
+  funnel            CrmFunnel      @relation(fields: [funnelId], references: [id])
+  stageId           Int
+  stage             CrmStage       @relation(fields: [stageId], references: [id])
+  statusId          Int
+  status            CrmDealStatus  @relation(fields: [statusId], references: [id])
+  sourceId          Int?
+  source            CrmLeadSource? @relation(fields: [sourceId], references: [id])
+  affiliateId       Int?
+  affiliate         Affiliate?     @relation(fields: [affiliateId], references: [id])
+  linkId            Int?
+  link              Link?          @relation(fields: [linkId], references: [id])
+  conversionId      Int?           @unique
+  conversion        Conversion?    @relation(fields: [conversionId], references: [id])
+  createdByUserId   Int?
+  createdByUser     User?          @relation("CrmDealCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   responsibleUserId Int?
-  responsibleUser   User? @relation("CrmDealResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
-  updatedByUserId Int?
-  updatedByUser   User? @relation("CrmDealUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  responsibleUser   User?          @relation("CrmDealResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+  updatedByUserId   Int?
+  updatedByUser     User?          @relation("CrmDealUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   tasks       CrmDealTask[]
   history     CrmDealHistory[]
@@ -361,7 +394,7 @@ model AffiliateCommission {
   affiliateId Int
   affiliate   Affiliate @relation(fields: [affiliateId], references: [id])
   dealId      Int
-  deal        CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  deal        CrmDeal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
 
   @@unique([affiliateId, dealId])
   @@index([dealId])

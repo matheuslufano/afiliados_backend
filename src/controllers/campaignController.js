@@ -1,4 +1,4 @@
-const crypto = require('node:crypto');
+const { generateAffiliateCode } = require('../utils/affiliateCodes');
 const prisma = require('../database/prisma');
 const {
   buildAffiliateUrl,
@@ -34,7 +34,7 @@ async function createUniqueLink({
   const maxAttempts = 8;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const shortCode = crypto.randomBytes(4).toString('hex');
+    const shortCode = generateAffiliateCode();
     const affiliateUrl = buildAffiliateUrl(req, shortCode);
 
     try {
