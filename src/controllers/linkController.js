@@ -693,6 +693,12 @@ class LinkController {
               createdAt: 'desc'
             },
             include: {
+              campaign: {
+                select: { id: true, name: true }
+              },
+              whatsappLinks: {
+                select: { id: true }
+              },
               clicks: {
                 orderBy: {
                   clickedAt: 'desc'
@@ -778,7 +784,13 @@ class LinkController {
             whatsappLink,
             totalClicks: link.clicks.length,
             latestClickAt: latestClick?.clickedAt || null
-          }))
+          })),
+          linkType: link.whatsappLinks.length > 0
+            ? 'whatsapp'
+            : link.campaignId
+              ? 'campaign'
+              : 'individual',
+          campaignName: link.campaign?.name || null
         };
       });
       const contacts = contactsFromAffiliateLinks(formattedLinks);
@@ -830,6 +842,20 @@ class LinkController {
           ? String(req.query.message)
           : `Tenho interesse no ${product}. Vim pelo link de divulgacao ${shortCode}.`
       );
+
+      const click = await prisma.click.create({
+        data: {
+          ...collectVisitorTrackingData(req),
+          source: visitorData.source || 'whatsapp',
+          linkId: link.id
+        }
+      });
+
+      publishRealtimeEvent('link-clicked', {
+        linkId: link.id,
+        shortCode: link.shortCode,
+        clickedAt: click.clickedAt
+      });
 
       const conversion = await prisma.conversion.create({
         data: {

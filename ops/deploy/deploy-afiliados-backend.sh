@@ -83,12 +83,17 @@ for attempt in 1 2 3; do
   sleep 10
 done
 
-if [ ! -f "$CURRENT_LINK/.env.docker.runtime" ]; then
-  echo "Arquivo $CURRENT_LINK/.env.docker.runtime nao encontrado."
+runtime_env="$CURRENT_LINK/.env.docker.runtime"
+if [ ! -f "$runtime_env" ] && [ -f "$APP_ROOT/.env.docker.runtime" ]; then
+  runtime_env="$APP_ROOT/.env.docker.runtime"
+fi
+
+if [ ! -f "$runtime_env" ]; then
+  echo "Arquivo de ambiente .env.docker.runtime nao encontrado."
   exit 1
 fi
 
-cp "$CURRENT_LINK/.env.docker.runtime" "$release/.env.docker.runtime"
+cp "$runtime_env" "$release/.env.docker.runtime"
 docker build -t "$image" "$release"
 
 previous_image="$(

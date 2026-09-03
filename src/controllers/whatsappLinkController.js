@@ -62,7 +62,7 @@ class WhatsAppLinkController {
         orderBy: { createdAt: 'desc' },
         include: whatsappLinkService.includeRelations
       });
-      return res.json(await Promise.all(items.map(whatsappLinkService.format)));
+      return res.json(await Promise.all(items.map((item) => whatsappLinkService.format(req, item))));
     } catch (error) {
       return handleError(res, error, 'Erro ao listar links WhatsApp.');
     }
@@ -80,7 +80,7 @@ class WhatsAppLinkController {
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id) || id < 1) throw whatsappLinkService.validationError('ID inválido.');
-      return res.json(await whatsappLinkService.update(id, req.body));
+      return res.json(await whatsappLinkService.update(req, id, req.body));
     } catch (error) {
       return handleError(res, error, 'Erro ao atualizar link WhatsApp.');
     }

@@ -139,6 +139,7 @@ function formatCampaign(req, campaign) {
   const links = campaign.links.map((link) => ({
     id: link.id,
     name: link.name,
+    displayName: link.whatsappLinks?.[0]?.name || link.name,
     originalUrl: link.originalUrl,
     shortCode: link.shortCode,
     promoLink: buildAffiliateUrl(req, link.shortCode),
@@ -154,12 +155,18 @@ function formatCampaign(req, campaign) {
       formatConversionEvent(conversion, link)
     ),
     whatsappLink: buildWhatsappTrackingUrl(req, link.shortCode),
+    linkType: link.whatsappLinks?.length
+      ? 'whatsapp'
+      : link.campaignId
+        ? 'campaign'
+        : 'individual',
     affiliate: link.affiliate
       ? {
           id: link.affiliate.id,
           name: link.affiliate.name,
           email: link.affiliate.email,
-          city: link.affiliate.city
+          city: link.affiliate.city,
+          photoUrl: link.affiliate.photoUrl
         }
       : null
   }));
@@ -319,6 +326,10 @@ class CampaignController {
             },
             include: {
               affiliate: true,
+              whatsappLinks: {
+                orderBy: { createdAt: 'desc' },
+                select: { id: true, name: true, createdAt: true }
+              },
               clicks: true,
               conversions: {
                 orderBy: {
@@ -518,6 +529,10 @@ class CampaignController {
             orderBy: { createdAt: 'desc' },
             include: {
               affiliate: true,
+              whatsappLinks: {
+                orderBy: { createdAt: 'desc' },
+                select: { id: true, name: true, createdAt: true }
+              },
               clicks: true,
               conversions: {
                 orderBy: { convertedAt: 'desc' },

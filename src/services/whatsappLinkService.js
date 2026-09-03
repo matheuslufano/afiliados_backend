@@ -1,7 +1,7 @@
 const QRCode = require('qrcode');
 const prisma = require('../database/prisma');
 const { generateAffiliateCode } = require('../utils/affiliateCodes');
-const { buildAffiliateUrl, getDefaultLandingPageUrl } = require('../utils/publicUrls');
+const { buildAffiliateUrl, buildWhatsappTrackingUrl, getDefaultLandingPageUrl } = require('../utils/publicUrls');
 const {
   DEFAULT_IDENTIFICATION_TEMPLATE,
   buildWhatsAppMessage,
@@ -115,6 +115,8 @@ async function createAffiliateCode({ req, campaign, affiliate, userId }) {
 }
 
 function buildValues(payload, context) {
+  const name = String(payload.name || context.link?.name || `Link WhatsApp - ${context.affiliate.name}`).trim();
+  if (name.length > 120) throw validationError('O nome do link deve ter no máximo 120 caracteres.');
   const originalMessage = String(payload.message ?? payload.originalMessage ?? '').trim();
   if (originalMessage.length > 1000) throw validationError('A mensagem deve ter no máximo 1000 caracteres.');
   const whatsappNumber = normalizePhoneNumber(payload.whatsappNumber);
@@ -139,6 +141,7 @@ function buildValues(payload, context) {
   });
   if (!finalMessage) throw validationError('Informe uma mensagem ou ative a identificação do afiliado.');
   return {
+    name,
     whatsappNumber,
     originalMessage,
     finalMessage,
@@ -148,12 +151,18 @@ function buildValues(payload, context) {
   };
 }
 
-async function format(item) {
+async function format(req, item) {
+  const params = new URLSearchParams({
+    message: item.finalMessage,
+    source: 'whatsapp-link'
+  });
+  const whatsappUrl = `${buildWhatsappTrackingUrl(req, item.link.shortCode)}?${params.toString()}`;
   return {
     ...item,
+    whatsappUrl,
     affiliateCodeId: item.linkId,
     affiliateCode: item.link.shortCode,
-    qrCode: await QRCode.toDataURL(item.whatsappUrl, { margin: 1, width: 260 })
+    qrCode: await QRCode.toDataURL(whatsappUrl, { margin: 1, width: 260 })
   };
 }
 
@@ -183,10 +192,10 @@ async function create(req, payload) {
     },
     include: includeRelations
   });
-  return format(item);
+  return format(req, item);
 }
 
-async function update(id, payload) {
+async function update(req, id, payload) {
   const existing = await prisma.whatsAppLink.findUnique({ where: { id } });
   if (!existing) throw validationError('Link WhatsApp não encontrado.', 404);
   const merged = {
@@ -196,6 +205,7 @@ async function update(id, payload) {
   };
   const context = await resolveContext(merged);
   const values = buildValues({
+    name: payload.name ?? existing.name,
     message: payload.message ?? existing.originalMessage,
     whatsappNumber: payload.whatsappNumber ?? existing.whatsappNumber,
     appendAffiliateCode: payload.appendAffiliateCode ?? existing.appendAffiliateCode,
@@ -212,7 +222,7 @@ async function update(id, payload) {
     },
     include: includeRelations
   });
-  return format(item);
+  return format(req, item);
 }
 
 module.exports = {

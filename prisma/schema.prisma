@@ -93,6 +93,7 @@ model Link {
 
 model WhatsAppLink {
   id                     Int      @id @default(autoincrement())
+  name                   String
   whatsappNumber         String
   originalMessage        String
   finalMessage           String
