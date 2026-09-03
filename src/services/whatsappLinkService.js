@@ -153,6 +153,7 @@ function buildValues(payload, context) {
 
 async function format(req, item) {
   const params = new URLSearchParams({
+    whatsappLinkId: String(item.id),
     message: item.finalMessage,
     source: 'whatsapp-link'
   });
@@ -164,6 +165,30 @@ async function format(req, item) {
     affiliateCode: item.link.shortCode,
     qrCode: await QRCode.toDataURL(whatsappUrl, { margin: 1, width: 260 })
   };
+}
+
+async function resolveTrackingTarget({ linkId, whatsappLinkId, message }) {
+  const parsedWhatsAppLinkId = Number(whatsappLinkId);
+  const hasWhatsAppLinkId = Number.isInteger(parsedWhatsAppLinkId) && parsedWhatsAppLinkId > 0;
+  const normalizedMessage = String(message || '').trim();
+
+  const exactItem = hasWhatsAppLinkId
+    ? await prisma.whatsAppLink.findFirst({
+      where: { id: parsedWhatsAppLinkId, linkId },
+      select: { whatsappNumber: true, finalMessage: true }
+    })
+    : null;
+
+  if (exactItem) return exactItem;
+
+  return prisma.whatsAppLink.findFirst({
+    where: {
+      linkId,
+      ...(normalizedMessage && { finalMessage: normalizedMessage })
+    },
+    orderBy: { updatedAt: 'desc' },
+    select: { whatsappNumber: true, finalMessage: true }
+  });
 }
 
 async function create(req, payload) {
@@ -231,6 +256,7 @@ module.exports = {
   format,
   includeRelations,
   getOrCreateIndividualWhatsAppCampaign,
+  resolveTrackingTarget,
   resolveContext,
   update,
   validationError

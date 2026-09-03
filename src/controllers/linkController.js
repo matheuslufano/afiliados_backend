@@ -10,6 +10,9 @@ const {
   buildWhatsAppUrl
 } = require('../utils/whatsapp');
 const {
+  resolveTrackingTarget
+} = require('../services/whatsappLinkService');
+const {
   publishRealtimeEvent
 } = require('../utils/realtimeEvents');
 const {
@@ -837,11 +840,24 @@ class LinkController {
         });
       }
 
-      const destination = buildWhatsAppUrl(
-        req.query.message
-          ? String(req.query.message)
-          : `Tenho interesse no ${product}. Vim pelo link de divulgacao ${shortCode}.`
-      );
+      const requestedMessage = req.query.message
+        ? String(req.query.message)
+        : `Tenho interesse no ${product}. Vim pelo link de divulgacao ${shortCode}.`;
+      const whatsappLink = await resolveTrackingTarget({
+        linkId: link.id,
+        whatsappLinkId: req.query.whatsappLinkId,
+        message: requestedMessage
+      });
+      const isManagedWhatsAppLink = Boolean(req.query.whatsappLinkId) || req.query.source === 'whatsapp-link';
+      if (isManagedWhatsAppLink && !whatsappLink) {
+        return res.status(404).json({
+          error: 'Configuração do link WhatsApp não encontrada'
+        });
+      }
+      const destination = buildWhatsAppUrl({
+        message: requestedMessage,
+        phone: whatsappLink?.whatsappNumber
+      });
 
       const click = await prisma.click.create({
         data: {

@@ -105,7 +105,46 @@ test('novo código é criado e relacionado ao link WhatsApp', async () => {
   assert.equal(result.campaignId, 1);
   assert.equal(result.affiliateId, 2);
   assert.match(result.finalMessage, /Código do afiliado: [a-f0-9]{8}/);
+  assert.equal(new URL(result.whatsappUrl).searchParams.get('whatsappLinkId'), '21');
   restore(originals);
+});
+
+test('resolve o número salvo pelo identificador do link WhatsApp', async () => {
+  const original = prisma.whatsAppLink.findFirst;
+  const calls = [];
+  prisma.whatsAppLink.findFirst = async (query) => {
+    calls.push(query);
+    return { whatsappNumber: '5563999999999', finalMessage: 'Olá' };
+  };
+
+  const result = await service.resolveTrackingTarget({
+    linkId: 15,
+    whatsappLinkId: '21',
+    message: 'Olá'
+  });
+
+  assert.equal(result.whatsappNumber, '5563999999999');
+  assert.deepEqual(calls[0].where, { id: 21, linkId: 15 });
+  prisma.whatsAppLink.findFirst = original;
+});
+
+test('links antigos resolvem o número pela mensagem e pelo link relacionado', async () => {
+  const original = prisma.whatsAppLink.findFirst;
+  let receivedQuery;
+  prisma.whatsAppLink.findFirst = async (query) => {
+    receivedQuery = query;
+    return { whatsappNumber: '5563888888888', finalMessage: 'Mensagem antiga' };
+  };
+
+  const result = await service.resolveTrackingTarget({
+    linkId: 15,
+    message: 'Mensagem antiga'
+  });
+
+  assert.equal(result.whatsappNumber, '5563888888888');
+  assert.deepEqual(receivedQuery.where, { linkId: 15, finalMessage: 'Mensagem antiga' });
+  assert.deepEqual(receivedQuery.orderBy, { updatedAt: 'desc' });
+  prisma.whatsAppLink.findFirst = original;
 });
 
 function basePayload() { return { campaignId: 1, affiliateId: 2, affiliateCodeId: 3 }; }
