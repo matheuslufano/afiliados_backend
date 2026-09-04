@@ -85,6 +85,17 @@ class WhatsAppLinkController {
       return handleError(res, error, 'Erro ao atualizar link WhatsApp.');
     }
   }
+
+  async remove(req, res) {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id < 1) throw whatsappLinkService.validationError('ID inválido.');
+      await whatsappLinkService.remove(id);
+      return res.status(204).send();
+    } catch (error) {
+      return handleError(res, error, 'Erro ao apagar link WhatsApp.');
+    }
+  }
 }
 
 module.exports = new WhatsAppLinkController();

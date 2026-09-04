@@ -109,6 +109,78 @@ test('novo código é criado e relacionado ao link WhatsApp', async () => {
   restore(originals);
 });
 
+test('gera novo código ao trocar o afiliado responsável do link WhatsApp', async () => {
+  const originals = {
+    whatsAppFind: prisma.whatsAppLink.findUnique,
+    whatsAppUpdate: prisma.whatsAppLink.update,
+    affiliateFind: prisma.affiliate.findUnique,
+    campaignFind: prisma.campaign.findUnique,
+    linkCreate: prisma.link.create
+  };
+  let updatedData;
+  let createdLinkData;
+  prisma.whatsAppLink.findUnique = async () => ({
+    id: 21,
+    name: 'Link original',
+    originalMessage: 'Olá',
+    whatsappNumber: '5563999999999',
+    appendAffiliateCode: true,
+    identificationTemplate: 'Código: {{codigo}}',
+    campaignId: 1,
+    affiliateId: 2,
+    linkId: 15,
+    active: true
+  });
+  prisma.affiliate.findUnique = async ({ where }) => ({
+    id: where.id,
+    name: 'Novo afiliado',
+    active: true
+  });
+  prisma.campaign.findUnique = async () => ({
+    id: 1,
+    name: 'Setembro',
+    destinationUrl: 'https://netbox.com.br'
+  });
+  prisma.link.create = async ({ data }) => {
+    createdLinkData = data;
+    return {
+      id: 33,
+      active: true,
+      createdAt: new Date(),
+      ...data
+    };
+  };
+  prisma.whatsAppLink.update = async ({ data }) => {
+    updatedData = data;
+    return {
+      id: 21,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...data,
+      campaign: { id: 1, name: 'Setembro' },
+      affiliate: { id: data.affiliateId, name: 'Novo afiliado', active: true },
+      link: { id: data.linkId, shortCode: createdLinkData.shortCode, createdAt: new Date() },
+      createdBy: { id: 7, name: 'Operador' }
+    };
+  };
+
+  const result = await service.update(
+    { user: { id: 7 }, protocol: 'http', get: () => 'localhost:3001' },
+    21,
+    { affiliateId: 8, generateNewCode: true }
+  );
+
+  assert.equal(updatedData.affiliateId, 8);
+  assert.equal(updatedData.linkId, 33);
+  assert.match(updatedData.finalMessage, new RegExp(createdLinkData.shortCode));
+  assert.equal(result.affiliate.id, 8);
+  prisma.whatsAppLink.findUnique = originals.whatsAppFind;
+  prisma.whatsAppLink.update = originals.whatsAppUpdate;
+  prisma.affiliate.findUnique = originals.affiliateFind;
+  prisma.campaign.findUnique = originals.campaignFind;
+  prisma.link.create = originals.linkCreate;
+});
+
 test('resolve o número salvo pelo identificador do link WhatsApp', async () => {
   const original = prisma.whatsAppLink.findFirst;
   const calls = [];
@@ -145,6 +217,30 @@ test('links antigos resolvem o número pela mensagem e pelo link relacionado', a
   assert.deepEqual(receivedQuery.where, { linkId: 15, finalMessage: 'Mensagem antiga' });
   assert.deepEqual(receivedQuery.orderBy, { updatedAt: 'desc' });
   prisma.whatsAppLink.findFirst = original;
+});
+
+test('apaga somente o registro de link WhatsApp', async () => {
+  const originalFind = prisma.whatsAppLink.findUnique;
+  const originalDelete = prisma.whatsAppLink.delete;
+  let deletedWhere;
+  prisma.whatsAppLink.findUnique = async () => ({ id: 21 });
+  prisma.whatsAppLink.delete = async ({ where }) => {
+    deletedWhere = where;
+    return { id: where.id };
+  };
+
+  await service.remove(21);
+
+  assert.deepEqual(deletedWhere, { id: 21 });
+  prisma.whatsAppLink.findUnique = originalFind;
+  prisma.whatsAppLink.delete = originalDelete;
+});
+
+test('rejeita exclusão de link WhatsApp inexistente', async () => {
+  const originalFind = prisma.whatsAppLink.findUnique;
+  prisma.whatsAppLink.findUnique = async () => null;
+  await assert.rejects(() => service.remove(999), /encontrado/i);
+  prisma.whatsAppLink.findUnique = originalFind;
 });
 
 function basePayload() { return { campaignId: 1, affiliateId: 2, affiliateCodeId: 3 }; }

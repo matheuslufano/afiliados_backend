@@ -9,5 +9,6 @@ router.get('/whatsapp-links', requireAuth, controller.list);
 router.post('/whatsapp-links', requireAuth, controller.create);
 router.put('/whatsapp-links/:id', requireAuth, controller.update);
 router.patch('/whatsapp-links/:id', requireAuth, controller.update);
+router.delete('/whatsapp-links/:id', requireAuth, controller.remove);
 
 module.exports = router;

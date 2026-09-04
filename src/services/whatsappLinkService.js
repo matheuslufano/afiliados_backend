@@ -223,19 +223,32 @@ async function create(req, payload) {
 async function update(req, id, payload) {
   const existing = await prisma.whatsAppLink.findUnique({ where: { id } });
   if (!existing) throw validationError('Link WhatsApp não encontrado.', 404);
+  const generateNewCode = payload.generateNewCode === true;
   const merged = {
     campaignId: payload.campaignId ?? existing.campaignId,
     affiliateId: payload.affiliateId ?? existing.affiliateId,
-    affiliateCodeId: payload.affiliateCodeId ?? existing.linkId
+    affiliateCodeId: generateNewCode
+      ? undefined
+      : payload.affiliateCodeId ?? existing.linkId
   };
   const context = await resolveContext(merged);
-  const values = buildValues({
+  const valuePayload = {
     name: payload.name ?? existing.name,
     message: payload.message ?? existing.originalMessage,
     whatsappNumber: payload.whatsappNumber ?? existing.whatsappNumber,
     appendAffiliateCode: payload.appendAffiliateCode ?? existing.appendAffiliateCode,
     identificationTemplate: payload.identificationTemplate ?? existing.identificationTemplate
-  }, context);
+  };
+  if (!context.link) {
+    buildValues(valuePayload, { ...context, link: { shortCode: '00000000' } });
+    context.link = await createAffiliateCode({
+      req,
+      campaign: context.campaign,
+      affiliate: context.affiliate,
+      userId: req.user.id
+    });
+  }
+  const values = buildValues(valuePayload, context);
   const item = await prisma.whatsAppLink.update({
     where: { id },
     data: {
@@ -250,6 +263,15 @@ async function update(req, id, payload) {
   return format(req, item);
 }
 
+async function remove(id) {
+  const existing = await prisma.whatsAppLink.findUnique({
+    where: { id },
+    select: { id: true }
+  });
+  if (!existing) throw validationError('Link WhatsApp não encontrado.', 404);
+  await prisma.whatsAppLink.delete({ where: { id } });
+}
+
 module.exports = {
   buildValues,
   create,
@@ -258,6 +280,7 @@ module.exports = {
   getOrCreateIndividualWhatsAppCampaign,
   resolveTrackingTarget,
   resolveContext,
+  remove,
   update,
   validationError
 };
