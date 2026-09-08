@@ -71,7 +71,9 @@ const DEFAULT_SOURCES = [
   { name: 'WhatsApp direto', type: 'whatsapp' },
   { name: 'Chatmix', type: 'chatmix' },
   { name: 'SGP', type: 'sgp' },
-  { name: 'Manual', type: 'manual' }
+  { name: 'Manual', type: 'manual' },
+  { name: 'Novo atendimento', type: 'chatmix-attendance' },
+  { name: 'Novo contato', type: 'contact' }
 ];
 
 function toPlainDecimal(value) {
@@ -266,6 +268,14 @@ function deriveConversionPlacement(conversion) {
 }
 
 function sourceForConversion(conversion) {
+  if (conversion.attendanceId) {
+    return 'Novo atendimento';
+  }
+
+  if (conversion.visitorName || conversion.visitorPhone || conversion.visitorDocument || conversion.visitorCity) {
+    return 'Novo contato';
+  }
+
   if (containsAny(conversion.source, ['chatmix']) || containsAny(conversion.type, ['chatmix'])) {
     return 'Chatmix';
   }
@@ -943,10 +953,6 @@ class CrmController {
 
   async transferDeal(req, res) {
     try {
-      if (!isManager(req.user)) {
-        return res.status(403).json({ error: 'Somente gestores podem transferir negociacoes' });
-      }
-
       const id = Number(req.params.id);
       const responsibleUserId = req.body.responsibleUserId === null
         ? null
@@ -1295,15 +1301,6 @@ class CrmController {
         const responsibleUserId = req.body.responsibleUserId === null
           ? null
           : Number(req.body.responsibleUserId);
-
-        if (
-          allowedDeal.responsibleUserId !== responsibleUserId &&
-          !isManager(req.user)
-        ) {
-          return res.status(403).json({
-            error: 'Somente gestores podem transferir negociacoes'
-          });
-        }
 
         const target = responsibleUserId
           ? await prisma.user.findUnique({ where: { id: responsibleUserId } })

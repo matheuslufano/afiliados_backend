@@ -75,6 +75,14 @@ function requireManager(req, res, next) {
   return next();
 }
 
+function requireCrmManager(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Autenticacao obrigatoria' });
+  }
+
+  return next();
+}
+
 function requireAdmin(req, res, next) {
   if (req.user?.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Permissao de administrador obrigatoria' });
@@ -87,5 +95,6 @@ module.exports = {
   requireAuth,
   requireAdmin,
   requireManager,
+  requireCrmManager,
   verifyToken
 };

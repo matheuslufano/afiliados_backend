@@ -448,9 +448,9 @@ async function ensureChatmixCrmPlacement(transaction) {
     }
   });
   const source = await transaction.crmLeadSource.upsert({
-    where: { name: 'Chatmix' },
-    update: { type: 'chatmix' },
-    create: { name: 'Chatmix', type: 'chatmix' }
+    where: { name: 'Novo atendimento' },
+    update: { type: 'chatmix-attendance' },
+    create: { name: 'Novo atendimento', type: 'chatmix-attendance' }
   });
   let stage = await transaction.crmStage.findFirst({
     where: {

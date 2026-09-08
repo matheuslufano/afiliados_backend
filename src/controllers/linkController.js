@@ -66,6 +66,27 @@ function contactIdentity(conversion) {
   return name ? `name:${name}` : null;
 }
 
+function contactIdentityKeys(conversion) {
+  const keys = [];
+  const document = normalizeDocument(conversion.visitorDocument);
+  const phone = normalizePhone(conversion.visitorPhone);
+  const name = normalizeContactName(conversion.visitorName);
+
+  if (document) keys.push(`document:${document}`);
+  if (phone) {
+    keys.push(`phone:${phone}`);
+    if (phone.startsWith('55') && [12, 13].includes(phone.length)) {
+      keys.push(`phone:${phone.slice(2)}`);
+    }
+  }
+  if (conversion.attendanceId) {
+    keys.push(`attendance:${conversion.attendanceId}`);
+  }
+  if (!document && !phone && name) keys.push(`name:${name}`);
+
+  return keys.length ? keys : [`conversion:${conversion.id}`];
+}
+
 function contactsFromAffiliateLinks(links) {
   const contacts = new Map();
 
@@ -240,6 +261,105 @@ async function resolveOptionalAffiliateId(raw) {
 }
 
 class LinkController {
+  async contacts(req, res) {
+    try {
+      const conversions = await prisma.conversion.findMany({
+        orderBy: { convertedAt: 'desc' },
+        include: {
+          link: {
+            select: {
+              id: true,
+              name: true,
+              shortCode: true,
+              affiliate: { select: { id: true, name: true } },
+              campaign: { select: { id: true, name: true } }
+            }
+          }
+        }
+      });
+
+      const contacts = [];
+      const contactsByIdentity = new Map();
+      conversions.forEach((conversion) => {
+        const identityKeys = contactIdentityKeys(conversion);
+        let contact = identityKeys
+          .map((identity) => contactsByIdentity.get(identity))
+          .find(Boolean);
+        const isChatmix = Boolean(
+          conversion.attendanceId ||
+          /chatmix/i.test(`${conversion.source || ''} ${conversion.type || ''}`)
+        );
+        const source = isChatmix
+          ? 'Chatmix'
+          : (conversion.source || conversion.type || 'Conversão');
+
+        if (!contact) {
+          contact = {
+            id: identityKeys[0],
+            name: conversion.visitorName || null,
+            phone: conversion.visitorPhone || null,
+            document: conversion.visitorDocument || null,
+            city: conversion.visitorCity || null,
+            source,
+            campaignName: conversion.link?.campaign?.name || null,
+            linkName: conversion.link?.name || conversion.link?.shortCode || null,
+            attendanceIds: new Set(),
+            conversionIds: [conversion.id],
+            affiliates: new Map(),
+            firstSeenAt: conversion.convertedAt,
+            lastSeenAt: conversion.convertedAt
+          };
+          contacts.push(contact);
+        }
+
+        identityKeys.forEach((identity) => contactsByIdentity.set(identity, contact));
+        contact.name ||= conversion.visitorName || null;
+        contact.phone ||= conversion.visitorPhone || null;
+        contact.document ||= conversion.visitorDocument || null;
+        contact.city ||= conversion.visitorCity || null;
+        if (conversion.attendanceId) {
+          contact.attendanceIds.add(conversion.attendanceId);
+        }
+        if (!contact.conversionIds.includes(conversion.id)) {
+          contact.conversionIds.push(conversion.id);
+        }
+        if (conversion.link?.affiliate) {
+          contact.affiliates.set(
+            conversion.link.affiliate.id,
+            conversion.link.affiliate.name
+          );
+        }
+        if (new Date(conversion.convertedAt) < new Date(contact.firstSeenAt)) {
+          contact.firstSeenAt = conversion.convertedAt;
+        }
+        if (new Date(conversion.convertedAt) > new Date(contact.lastSeenAt)) {
+          contact.lastSeenAt = conversion.convertedAt;
+          contact.source = source;
+          contact.campaignName = conversion.link?.campaign?.name || contact.campaignName;
+          contact.linkName = conversion.link?.name || conversion.link?.shortCode || contact.linkName;
+        }
+      });
+
+      const formattedContacts = contacts.map((contact) => ({
+        ...contact,
+        identified: Boolean(contact.name || contact.phone || contact.document),
+        attendanceIds: [...contact.attendanceIds],
+        totalAttendances: contact.attendanceIds.size,
+        totalConversions: contact.conversionIds.length,
+        affiliates: [...contact.affiliates].map(([id, name]) => ({ id, name })),
+        totalAffiliates: contact.affiliates.size
+      }));
+
+      return res.json({
+        contacts: formattedContacts,
+        total: formattedContacts.length
+      });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ error: 'Erro ao listar contatos' });
+    }
+  }
+
   async list(req, res) {
     try {
       const links = await prisma.link.findMany({

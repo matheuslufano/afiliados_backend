@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { requireAuth } = require('../middleware/auth');
 
 const linkController = require(
   '../controllers/linkController'
@@ -13,6 +14,12 @@ router.get(
 router.get(
   '/links',
   linkController.list
+);
+
+router.get(
+  '/contacts',
+  requireAuth,
+  linkController.contacts
 );
 
 router.post(

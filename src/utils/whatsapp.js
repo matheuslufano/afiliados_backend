@@ -15,7 +15,9 @@ function normalizePhoneNumber(value) {
 
 function isValidWhatsAppPhone(value) {
   const phone = normalizePhoneNumber(value);
-  return /^55[1-9]{2}9?\d{8}$/.test(phone);
+  // Accept regular Brazilian mobile/landline numbers and toll-free 0800/800
+  // destinations used by WhatsApp business contacts.
+  return /^55(?:[1-9]{2}9?\d{8}|0?800\d{7,8})$/.test(phone);
 }
 
 function configuredWhatsAppNumber() {

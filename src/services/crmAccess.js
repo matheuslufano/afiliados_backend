@@ -1,4 +1,6 @@
-const MANAGER_ROLES = new Set(['ADMIN', 'MANAGER']);
+// Every authenticated profile has full operational access inside the CRM.
+// Keep the role names supported by existing installations for compatibility.
+const MANAGER_ROLES = new Set(['ADMIN', 'MANAGER', 'GERENTE', 'USER']);
 
 const CONDITION_FIELDS = {
   responsibleUserId: { path: 'responsibleUserId', type: 'number' },
@@ -147,11 +149,10 @@ function canAssign(user, target) {
     return false;
   }
 
-  if (isManager(user)) {
-    return true;
-  }
-
-  return target.id === user.id;
+  // Assignment is an operational CRM action available to every authenticated
+  // profile. Keep the active-user check so inactive accounts cannot receive
+  // new negotiations.
+  return true;
 }
 
 module.exports = {
