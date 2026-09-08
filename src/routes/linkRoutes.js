@@ -22,6 +22,18 @@ router.get(
   linkController.contacts
 );
 
+router.put(
+  '/contacts/:id',
+  requireAuth,
+  linkController.updateContact
+);
+
+router.delete(
+  '/contacts/:id',
+  requireAuth,
+  linkController.deleteContact
+);
+
 router.post(
   '/links',
   linkController.create

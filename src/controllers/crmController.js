@@ -186,6 +186,27 @@ async function ensureCrmDefaults() {
   };
 }
 
+async function moveUnassignedDealsToFirstStage(funnelId) {
+  if (!funnelId) return;
+
+  const firstStage = await prisma.crmStage.findFirst({
+    where: { funnelId },
+    orderBy: [{ position: 'asc' }, { id: 'asc' }]
+  });
+
+  if (!firstStage) return;
+
+  await prisma.crmDeal.updateMany({
+    where: {
+      funnelId,
+      archivedAt: null,
+      responsibleUserId: null,
+      stageId: { not: firstStage.id }
+    },
+    data: { stageId: firstStage.id }
+  });
+}
+
 function deriveConversionPlacement(conversion) {
   const link = conversion.link;
   const searchText = [
@@ -737,6 +758,8 @@ class CrmController {
       ];
 
       if (funnelId) queryParts.push({ funnelId });
+      const activeFunnel = funnels.find((funnel) => !funnelId || funnel.id === funnelId) || funnels[0];
+      await moveUnassignedDealsToFirstStage(activeFunnel?.id);
       if (req.query.status && req.query.status !== 'all') {
         queryParts.push({ status: { key: String(req.query.status) } });
       }
@@ -795,7 +818,7 @@ class CrmController {
         permissions: {
           canViewAll: isManager(req.user),
           canViewTeam: isManager(req.user) && Boolean(req.user.teamId),
-          canViewUnassigned: isManager(req.user),
+          canViewUnassigned: true,
           canShareFilters: isManager(req.user),
           canTransfer: isManager(req.user)
         },
@@ -969,11 +992,18 @@ class CrmController {
         return res.status(403).json({ error: 'Responsavel nao permitido' });
       }
       const updated = await prisma.$transaction(async (transaction) => {
+        const firstStage = responsibleUserId === null
+          ? await transaction.crmStage.findFirst({
+              where: { funnelId: current.funnelId },
+              orderBy: [{ position: 'asc' }, { id: 'asc' }]
+            })
+          : null;
         const deal = await transaction.crmDeal.update({
           where: { id },
           data: {
             responsibleUserId,
             owner: null,
+            ...(firstStage ? { stageId: firstStage.id } : {}),
             updatedByUserId: req.user.id
           }
         });
@@ -1368,6 +1398,19 @@ class CrmController {
         }
 
         history.push('Etapa alterada no CRM');
+      }
+
+      // A deal without a responsible user always belongs to the first column,
+      // even when a client sends a stale stage id while unassigning it.
+      if (
+        data.responsibleUserId === null ||
+        (data.responsibleUserId === undefined && allowedDeal.responsibleUserId === null)
+      ) {
+        const firstStage = await prisma.crmStage.findFirst({
+          where: { funnelId: allowedDeal.funnelId },
+          orderBy: [{ position: 'asc' }, { id: 'asc' }]
+        });
+        if (firstStage) data.stageId = firstStage.id;
       }
 
       if (req.body.status !== undefined) {

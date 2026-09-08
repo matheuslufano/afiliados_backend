@@ -46,7 +46,14 @@ function accessWhere(user) {
     return {};
   }
 
-  return { responsibleUserId: user.id };
+  // Unassigned negotiations are visible to every authenticated profile so
+  // someone can claim them. Assigned negotiations remain scoped to the user.
+  return {
+    OR: [
+      { responsibleUserId: user.id },
+      { responsibleUserId: null }
+    ]
+  };
 }
 
 function scopeWhere(user, scope, requestedUserId) {

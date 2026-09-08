@@ -360,6 +360,58 @@ class LinkController {
     }
   }
 
+  async updateContact(req, res) {
+    try {
+      const conversionIds = Array.isArray(req.body.conversionIds)
+        ? req.body.conversionIds.map(Number).filter((id) => Number.isInteger(id) && id > 0)
+        : [];
+      if (!conversionIds.length) {
+        return res.status(400).json({ error: 'Contato sem registros para atualizar' });
+      }
+
+      const data = {};
+      if (req.body.name !== undefined) data.visitorName = optionalText(req.body.name);
+      if (req.body.phone !== undefined) data.visitorPhone = normalizePhone(req.body.phone);
+      if (req.body.document !== undefined) data.visitorDocument = normalizeDocument(req.body.document);
+      if (req.body.city !== undefined) data.visitorCity = optionalText(req.body.city);
+
+      await prisma.conversion.updateMany({
+        where: { id: { in: conversionIds } },
+        data
+      });
+      return res.json({ message: 'Contato atualizado com sucesso' });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ error: 'Erro ao atualizar contato' });
+    }
+  }
+
+  async deleteContact(req, res) {
+    try {
+      const conversionIds = Array.isArray(req.body.conversionIds)
+        ? req.body.conversionIds.map(Number).filter((id) => Number.isInteger(id) && id > 0)
+        : [];
+      if (!conversionIds.length) {
+        return res.status(400).json({ error: 'Contato sem registros para apagar' });
+      }
+
+      // Preserve conversion and CRM history while removing the contact identity.
+      await prisma.conversion.updateMany({
+        where: { id: { in: conversionIds } },
+        data: {
+          visitorName: null,
+          visitorPhone: null,
+          visitorDocument: null,
+          visitorCity: null
+        }
+      });
+      return res.json({ message: 'Contato apagado com sucesso' });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ error: 'Erro ao apagar contato' });
+    }
+  }
+
   async list(req, res) {
     try {
       const links = await prisma.link.findMany({
