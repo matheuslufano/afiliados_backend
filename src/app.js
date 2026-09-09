@@ -17,12 +17,16 @@ const wordpressRoutes = require('./routes/wordpressRoutes');
 const eventRoutes = require('./routes/eventRoutes');
 const crmRoutes = require('./routes/crmRoutes');
 const whatsappLinkRoutes = require('./routes/whatsappLinkRoutes');
+const contactRoutes = require('./routes/contactRoutes');
+const maintenanceRoutes = require('./routes/maintenanceRoutes');
+const { prismaStudioRoute } = require('./routes/prismaStudioRoute');
 
 const app = express();
 
 app.set('trust proxy', true);
 
 app.use(cors());
+app.use(prismaStudioRoute);
 app.use(express.json({ limit: '5mb' }));
 
 app.use(testRoute);
@@ -40,6 +44,8 @@ app.use(wordpressRoutes);
 app.use(eventRoutes);
 app.use(crmRoutes);
 app.use(whatsappLinkRoutes);
+app.use(contactRoutes);
+app.use(maintenanceRoutes);
 
 app.get('/', (req, res) => {
   res.send('API funcionando 🚀');

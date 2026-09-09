@@ -377,6 +377,11 @@ async function syncConvertedClients() {
   const startedAt = new Date();
   const defaults = await ensureCrmDefaults();
   const conversions = await prisma.conversion.findMany({
+    where: {
+      // Exclusoes feitas no CRM sao permanentes e nao devem ser recriadas
+      // pela sincronizacao automatica de conversoes.
+      crmDeletedAt: null
+    },
     orderBy: {
       convertedAt: 'desc'
     },
@@ -887,8 +892,15 @@ class CrmController {
       }
 
       const funnelId = Number(req.body.funnelId) || defaults.funnel.id;
-      const stageId = Number(req.body.stageId) || Object.values(defaults.stages)[0]?.id;
-      const stage = await prisma.crmStage.findFirst({ where: { id: stageId, funnelId } });
+      const requestedStageId = Number(req.body.stageId);
+      // Cada funil possui as proprias etapas. Ao criar um cartao em um funil
+      // novo, use a primeira etapa dele caso a tela ainda nao tenha uma etapa.
+      const stage = Number.isInteger(requestedStageId) && requestedStageId > 0
+        ? await prisma.crmStage.findFirst({ where: { id: requestedStageId, funnelId } })
+        : await prisma.crmStage.findFirst({
+            where: { funnelId },
+            orderBy: [{ position: 'asc' }, { id: 'asc' }]
+          });
       const status = await prisma.crmDealStatus.findUnique({
         where: { key: String(req.body.status || 'new') }
       });
@@ -935,8 +947,12 @@ class CrmController {
           monthlyValue: Number(req.body.monthlyValue || req.body.value) || null,
           estimatedValue: Number(req.body.value || req.body.monthlyValue) || null,
           priorityLevel: String(req.body.priority || 'medium'),
+          cardColor: String(req.body.cardColor || '').trim() || null,
+          trackingCode: String(req.body.trackingCode || '').trim() || null,
+          chatmixId: String(req.body.chatmixId || '').trim() || null,
+          sgpId: String(req.body.sgpId || '').trim() || null,
           funnelId,
-          stageId,
+          stageId: stage.id,
           statusId: status.id,
           sourceId: source.id,
           createdByUserId: req.user.id,
@@ -1035,7 +1051,22 @@ class CrmController {
     }
     const deal = await prisma.crmDeal.findFirst({ where: { id, ...accessWhere(req.user) } });
     if (!deal) return res.status(404).json({ error: 'Negociacao nao encontrada' });
-    await prisma.crmDeal.delete({ where: { id } });
+    await prisma.$transaction(async (transaction) => {
+      if (deal.conversionId) {
+        await transaction.conversion.update({
+          where: { id: deal.conversionId },
+          data: { crmDeletedAt: new Date() }
+        });
+      }
+      // Nao remover fisicamente: webhooks e a sincronizacao podem receber
+      // novamente a mesma conversao/atendimento e recriar o cartao.
+      // O registro arquivado funciona como tombstone permanente para essas
+      // fontes externas, enquanto continua fora do funil ativo.
+      await transaction.crmDeal.update({
+        where: { id },
+        data: { archivedAt: new Date() }
+      });
+    });
     return res.status(204).send();
   }
 
@@ -1454,6 +1485,34 @@ class CrmController {
 
       if (req.body.monthlyValue !== undefined) {
         data.monthlyValue = Number(req.body.monthlyValue) || null;
+      }
+
+      if (req.body.value !== undefined) {
+        data.estimatedValue = Number(req.body.value) || null;
+      }
+
+      if (req.body.campaign !== undefined) {
+        data.campaignName = String(req.body.campaign || '').trim() || null;
+      }
+
+      if (req.body.source !== undefined) {
+        const sourceName = String(req.body.source || 'Manual').trim() || 'Manual';
+        const source = await prisma.crmLeadSource.upsert({
+          where: { name: sourceName },
+          update: {},
+          create: { name: sourceName, type: 'manual' }
+        });
+        data.sourceId = source.id;
+      }
+
+      if (req.body.affiliateId !== undefined) {
+        const affiliateId = req.body.affiliateId === null
+          ? null
+          : Number(req.body.affiliateId);
+        if (affiliateId !== null && (!Number.isInteger(affiliateId) || affiliateId < 1)) {
+          return res.status(400).json({ error: 'Afiliado invalido' });
+        }
+        data.affiliateId = affiliateId;
       }
 
       if (req.body.nextFollowUpAt !== undefined) {

@@ -27,6 +27,9 @@ model User {
   responsibleCrmDeals  CrmDeal[]        @relation("CrmDealResponsible")
   updatedCrmDeals      CrmDeal[]        @relation("CrmDealUpdatedBy")
   savedCrmFilters      SavedCrmFilter[]
+  ownedContacts        Contact[]        @relation("ContactOwner")
+  contactInteractions  ContactInteraction[]
+  assignedAppointments ContactAppointment[] @relation("AppointmentAssignee")
 
   @@index([teamId, active])
 }
@@ -179,11 +182,81 @@ model Conversion {
   screenWidth     Int?
   screenHeight    Int?
   convertedAt     DateTime @default(now())
+  crmDeletedAt    DateTime?
 
   linkId Int
   link   Link @relation(fields: [linkId], references: [id])
 
   crmDeal CrmDeal?
+  contactId Int?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([contactId])
+}
+
+model Contact {
+  id                Int      @id @default(autoincrement())
+  name              String?
+  phone             String?
+  email             String?
+  document          String?
+  city              String?
+  neighborhood      String?
+  address           String?
+  status            String   @default("ACTIVE")
+  preferredChannel  String   @default("WHATSAPP")
+  notes             String?
+  avatarUrl         String?
+  ownerUserId       Int?
+  owner             User?    @relation("ContactOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+
+  conversions       Conversion[]
+  crmDeals          CrmDeal[]
+  interactions      ContactInteraction[]
+  appointments      ContactAppointment[]
+
+  @@index([phone])
+  @@index([document])
+  @@index([status, deletedAt])
+  @@index([ownerUserId, status])
+}
+
+model ContactInteraction {
+  id         Int      @id @default(autoincrement())
+  contactId  Int
+  contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  userId     Int?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  type       String
+  content    String
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([contactId, occurredAt])
+}
+
+model ContactAppointment {
+  id              Int      @id @default(autoincrement())
+  contactId       Int
+  contact         Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  assignedUserId  Int?
+  assignedUser    User?    @relation("AppointmentAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  title           String
+  description     String?
+  scheduledAt     DateTime
+  durationMinutes Int      @default(30)
+  status          String   @default("PENDING")
+  reminderMinutes Int?
+  color           String?  @db.VarChar(20)
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([contactId, scheduledAt])
+  @@index([assignedUserId, scheduledAt, status])
 }
 
 model WebhookLog {
@@ -306,6 +379,8 @@ model CrmDeal {
   link              Link?          @relation(fields: [linkId], references: [id])
   conversionId      Int?           @unique
   conversion        Conversion?    @relation(fields: [conversionId], references: [id])
+  contactId         Int?
+  contact           Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
   createdByUserId   Int?
   createdByUser     User?          @relation("CrmDealCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   responsibleUserId Int?
@@ -324,6 +399,7 @@ model CrmDeal {
   @@index([createdAt])
   @@index([createdByUserId])
   @@index([responsibleUserId])
+  @@index([contactId])
 }
 
 model SavedCrmFilter {
