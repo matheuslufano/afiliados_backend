@@ -441,21 +441,33 @@ async function syncConvertedClients() {
       ...baseData
     };
 
-    const deal = await prisma.crmDeal.upsert({
-      where: {
-        conversionId: conversion.id
-      },
-      update: updateData,
-      create: {
-        ...createData,
-        conversionId: conversion.id
-      },
-      include: {
-        status: true
-      }
-    });
+    const attendanceDeal = conversion.attendanceId
+      ? await prisma.crmDeal.findFirst({
+          where: {
+            chatmixId: conversion.attendanceId,
+            archivedAt: null
+          }
+        })
+      : null;
+    const existingDeal = conversion.crmDeal || attendanceDeal;
+    const deal = existingDeal
+      ? await prisma.crmDeal.update({
+          where: { id: existingDeal.id },
+          data: {
+            ...updateData,
+            conversionId: conversion.id
+          },
+          include: { status: true }
+        })
+      : await prisma.crmDeal.create({
+          data: {
+            ...createData,
+            conversionId: conversion.id
+          },
+          include: { status: true }
+        });
 
-    if (conversion.crmDeal) {
+    if (existingDeal) {
       updated += 1;
     } else {
       created += 1;

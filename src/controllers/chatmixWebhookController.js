@@ -612,6 +612,21 @@ async function conversionFromAttendance(attendanceId, linkId, visitorData) {
     return directConversion;
   }
 
+  const recentWhere = recentConversionWhere(visitorData, linkId);
+  if (recentWhere) {
+    const recentConversion = await prisma.conversion.findFirst({
+      where: {
+        ...recentWhere,
+        attendanceId: null
+      },
+      orderBy: { convertedAt: 'desc' }
+    });
+
+    if (recentConversion) {
+      return recentConversion;
+    }
+  }
+
   try {
     const log = await prisma.webhookLog.findFirst({
       where: {
@@ -656,6 +671,67 @@ async function conversionFromAttendance(attendanceId, linkId, visitorData) {
     );
     return null;
   }
+
+  // Alguns registros antigos foram criados antes de o Chatmix preencher
+  // attendanceId. Reaproveite a conversão recente do mesmo contato/link para
+  // que o atendimento e a conversão apontem para o mesmo cartão.
+  const legacyRecentWhere = recentConversionWhere(visitorData, linkId);
+  if (legacyRecentWhere) {
+    return prisma.conversion.findFirst({
+      where: {
+        ...legacyRecentWhere,
+        attendanceId: null
+      },
+      orderBy: { convertedAt: 'desc' }
+    });
+  }
+
+  return null;
+}
+
+async function reconcileAttendanceDeal(conversion, attendanceId, crmAttendance, link) {
+  if (!conversion?.id || !crmAttendance?.deal?.id) {
+    return;
+  }
+
+  const canonicalDealId = crmAttendance.deal.id;
+  const duplicates = await prisma.crmDeal.findMany({
+    where: {
+      archivedAt: null,
+      id: { not: canonicalDealId },
+      OR: [
+        { conversionId: conversion.id },
+        { chatmixId: attendanceId }
+      ]
+    },
+    select: { id: true }
+  });
+
+  await prisma.$transaction(async (transaction) => {
+    if (duplicates.length > 0) {
+      await transaction.crmDeal.updateMany({
+        where: { id: { in: duplicates.map((deal) => deal.id) } },
+        data: {
+          // Libera a relação 1:1 antes de vincular o cartão canônico.
+          conversionId: null,
+          archivedAt: new Date(),
+          notes: 'Cartão duplicado arquivado automaticamente na reconciliação Chatmix.'
+        }
+      });
+    }
+
+    await transaction.crmDeal.update({
+      where: { id: canonicalDealId },
+      data: {
+        conversionId: conversion.id,
+        linkId: link.id,
+        affiliateId: link.affiliateId || null,
+        trackingCode: link.shortCode,
+        campaignName: link.campaign?.name || link.name || null,
+        archivedAt: null
+      }
+    });
+  });
 }
 
 class ChatmixWebhookController {
@@ -870,18 +946,12 @@ class ChatmixWebhookController {
             }
           });
 
-      if (crmAttendance?.deal?.id) {
-        await prisma.crmDeal.update({
-          where: { id: crmAttendance.deal.id },
-          data: {
-            conversionId: conversion.id,
-            linkId: link.id,
-            affiliateId: link.affiliateId || null,
-            trackingCode: link.shortCode,
-            campaignName: link.campaign?.name || link.name || null
-          }
-        });
-      }
+      await reconcileAttendanceDeal(
+        conversion,
+        attendanceId,
+        crmAttendance,
+        link
+      );
 
       await persistChatmixWebhookEvent(req, payload, {
         status: existingConversion ? 'updated' : 'received',
