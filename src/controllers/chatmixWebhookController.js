@@ -728,6 +728,10 @@ async function reconcileAttendanceDeal(conversion, attendanceId, crmAttendance, 
         affiliateId: link.affiliateId || null,
         trackingCode: link.shortCode,
         campaignName: link.campaign?.name || link.name || null,
+        ...(conversion.visitorName ? { customerName: conversion.visitorName } : {}),
+        ...(conversion.visitorPhone ? { phone: conversion.visitorPhone } : {}),
+        ...(conversion.visitorCity ? { city: conversion.visitorCity } : {}),
+        ...(link.affiliate?.name ? { owner: link.affiliate.name } : {}),
         archivedAt: null
       }
     });

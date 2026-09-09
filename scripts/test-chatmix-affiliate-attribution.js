@@ -187,6 +187,8 @@ async function run() {
     assert.equal(deal.affiliateId, affiliate.id);
     assert.equal(deal.linkId, link.id);
     assert.ok(deal.conversionId);
+    assert.equal(deal.customerName, clients[0].name);
+    assert.equal(deal.phone, clients[0].phone);
   });
   assert.equal(report.totalConversions, simulationCount);
   assert.equal(report.totalContacts, simulationCount);
