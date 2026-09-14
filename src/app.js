@@ -19,6 +19,7 @@ const crmRoutes = require('./routes/crmRoutes');
 const whatsappLinkRoutes = require('./routes/whatsappLinkRoutes');
 const contactRoutes = require('./routes/contactRoutes');
 const maintenanceRoutes = require('./routes/maintenanceRoutes');
+const clickRoutes = require('./routes/clickRoutes');
 const { prismaStudioRoute } = require('./routes/prismaStudioRoute');
 
 const app = express();
@@ -46,6 +47,7 @@ app.use(crmRoutes);
 app.use(whatsappLinkRoutes);
 app.use(contactRoutes);
 app.use(maintenanceRoutes);
+app.use(clickRoutes);
 
 app.get('/', (req, res) => {
   res.send('API funcionando 🚀');

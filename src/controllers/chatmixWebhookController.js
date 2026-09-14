@@ -199,6 +199,21 @@ function firstStringByKey(body, keys) {
   return null;
 }
 
+function isNewAttendanceEvent(eventName) {
+  const normalized = normalizeKey(eventName);
+
+  return new Set([
+    'attendancestarted',
+    'attendancecreated',
+    'newattendance',
+    'novoatendimento',
+    'atendimentonovo',
+    'conversationstarted',
+    'conversationcreated',
+    'ticketcreated'
+  ]).has(normalized);
+}
+
 function optionalText(value) {
   const text = String(value || '').trim();
   return text ? text.slice(0, 255) : null;
@@ -484,7 +499,8 @@ async function ensureChatmixCrmPlacement(transaction) {
 async function createOrUpdateCrmDealFromAttendance(
   attendanceId,
   visitorData,
-  link = null
+  link = null,
+  createIfMissing = false
 ) {
   if (!attendanceId) {
     return null;
@@ -529,6 +545,10 @@ async function createOrUpdateCrmDealFromAttendance(
       });
 
       return { deal, created: false };
+    }
+
+    if (!createIfMissing) {
+      return { deal: null, created: false, ignored: true };
     }
 
     const placement = await ensureChatmixCrmPlacement(transaction);
@@ -822,6 +842,15 @@ class ChatmixWebhookController {
         extractShortCode(lookupPayload) || shortCodeFromChatmixChannel(payload);
       let link = null;
 
+      const eventName = firstStringByKey(payload, [
+        'event',
+        'eventName',
+        'type',
+        'status',
+        'action',
+        'acao'
+      ]);
+
       if (shortCode) {
         link = await prisma.link.findUnique({
           where: {
@@ -838,17 +867,9 @@ class ChatmixWebhookController {
       const crmAttendance = await createOrUpdateCrmDealFromAttendance(
         attendanceId,
         visitorData,
-        link
+        link,
+        isNewAttendanceEvent(eventName)
       );
-
-      const eventName = firstStringByKey(payload, [
-        'event',
-        'eventName',
-        'type',
-        'status',
-        'action',
-        'acao'
-      ]);
       const product = firstStringByKey(payload, [
         'product',
         'produto',

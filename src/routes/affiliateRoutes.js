@@ -27,6 +27,7 @@ router.put(
 
 router.delete(
   '/affiliate/:id',
+  requireAuth,
   affiliateController.delete
 );
 

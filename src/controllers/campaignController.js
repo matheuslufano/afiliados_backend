@@ -1,4 +1,5 @@
 const { generateAffiliateCode } = require('../utils/affiliateCodes');
+const { getLinkType } = require('../utils/linkTypes');
 const prisma = require('../database/prisma');
 const {
   buildAffiliateUrl,
@@ -155,11 +156,7 @@ function formatCampaign(req, campaign) {
       formatConversionEvent(conversion, link)
     ),
     whatsappLink: buildWhatsappTrackingUrl(req, link.shortCode),
-    linkType: link.whatsappLinks?.length
-      ? 'whatsapp'
-      : link.campaignId
-        ? 'campaign'
-        : 'individual',
+    linkType: getLinkType(link),
     affiliate: link.affiliate
       ? {
           id: link.affiliate.id,

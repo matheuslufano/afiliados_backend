@@ -450,6 +450,14 @@ async function syncConvertedClients() {
         })
       : null;
     const existingDeal = conversion.crmDeal || attendanceDeal;
+
+    // Atendimentos do Chatmix só podem entrar no CRM quando o webhook de
+    // abertura já criou o cartão. Um clique/conversão isolado não deve criar
+    // um novo cartão automaticamente.
+    if (conversion.attendanceId && !existingDeal) {
+      continue;
+    }
+
     const deal = existingDeal
       ? await prisma.crmDeal.update({
           where: { id: existingDeal.id },

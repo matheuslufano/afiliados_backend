@@ -74,15 +74,29 @@ class UserController {
         });
       }
 
-      const user = await prisma.user.create({
-        data: {
-          name,
-          email,
-          password,
-          city: city || null,
-          photoUrl: photoUrl || null,
-          role
-        }
+      const user = await prisma.$transaction(async (transaction) => {
+        const createdUser = await transaction.user.create({
+          data: {
+            name,
+            email,
+            password,
+            city: city || null,
+            photoUrl: photoUrl || null,
+            role
+          }
+        });
+
+        await transaction.affiliate.create({
+          data: {
+            name,
+            email,
+            city: city || null,
+            photoUrl: photoUrl || null,
+            userId: createdUser.id
+          }
+        });
+
+        return createdUser;
       });
 
       return res.status(201).json(formatUser(user));
@@ -171,11 +185,26 @@ class UserController {
         }
       }
 
-      const user = await prisma.user.update({
-        where: {
-          id
-        },
-        data
+      const user = await prisma.$transaction(async (transaction) => {
+        const updatedUser = await transaction.user.update({
+          where: { id },
+          data
+        });
+
+        const affiliateData = {};
+        if (data.name !== undefined) affiliateData.name = data.name;
+        if (data.email !== undefined) affiliateData.email = data.email;
+        if (data.city !== undefined) affiliateData.city = data.city;
+        if (data.photoUrl !== undefined) affiliateData.photoUrl = data.photoUrl;
+
+        if (Object.keys(affiliateData).length > 0) {
+          await transaction.affiliate.updateMany({
+            where: { userId: id },
+            data: affiliateData
+          });
+        }
+
+        return updatedUser;
       });
 
       return res.json(formatUser(user));

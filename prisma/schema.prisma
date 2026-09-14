@@ -30,6 +30,7 @@ model User {
   ownedContacts        Contact[]        @relation("ContactOwner")
   contactInteractions  ContactInteraction[]
   assignedAppointments ContactAppointment[] @relation("AppointmentAssignee")
+  affiliate            Affiliate?
 
   @@index([teamId, active])
 }
@@ -53,6 +54,9 @@ model Affiliate {
   photoUrl  String?
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
+
+  userId Int? @unique
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   links                Link[]
   whatsappLinks        WhatsAppLink[]
@@ -125,6 +129,10 @@ model WhatsAppLink {
 
 model Click {
   id              Int      @id @default(autoincrement())
+  clickCode       String?  @unique
+  visitorId       String?
+  sessionId       String?
+  ipHash          String?
   ipAddress       String?
   userAgent       String?
   referrer        String?
@@ -136,6 +144,7 @@ model Click {
   source          String?
   deviceType      String?
   browser         String?
+  browserVersion  String?
   operatingSystem String?
   platform        String?
   language        String?
@@ -145,10 +154,25 @@ model Click {
   timezone        String?
   screenWidth     Int?
   screenHeight    Int?
+  destinationUrl  String?
+  isUnique        Boolean  @default(false)
+  isValid         Boolean  @default(true)
+  isSuspectedBot  Boolean  @default(false)
   clickedAt       DateTime @default(now())
 
   linkId Int
   link   Link @relation(fields: [linkId], references: [id])
+  conversions Conversion[]
+
+  @@index([clickedAt])
+  @@index([linkId, clickedAt])
+  @@index([visitorId])
+  @@index([sessionId])
+  @@index([utmSource])
+  @@index([utmCampaign])
+  @@index([source])
+  @@index([geoCity])
+  @@index([isValid])
 }
 
 model Conversion {
@@ -187,11 +211,15 @@ model Conversion {
   linkId Int
   link   Link @relation(fields: [linkId], references: [id])
 
+  clickId Int?
+  click   Click? @relation(fields: [clickId], references: [id], onDelete: SetNull)
+
   crmDeal CrmDeal?
   contactId Int?
   contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
   @@index([contactId])
+  @@index([clickId])
 }
 
 model Contact {

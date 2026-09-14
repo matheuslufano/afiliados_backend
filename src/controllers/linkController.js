@@ -1,4 +1,5 @@
 const prisma = require('../database/prisma');
+const crypto = require('crypto');
 const { generateAffiliateCode } = require('../utils/affiliateCodes');
 const QRCode = require('qrcode');
 const {
@@ -29,6 +30,36 @@ function appendReferralCode(url, shortCode) {
   } catch {
     return url;
   }
+}
+
+function appendTrackingParameters(url, shortCode, clickCode, visitorId) {
+  try {
+    const destination = new URL(appendReferralCode(url, shortCode));
+    destination.searchParams.set('click_id', clickCode);
+    destination.searchParams.set('visitor_id', visitorId);
+    return destination.toString();
+  } catch {
+    return appendReferralCode(url, shortCode);
+  }
+}
+
+function trackingIdentity(req) {
+  const cookie = String(req.headers.cookie || '');
+  const storedVisitor = cookie.match(/(?:^|;\s*)nb_visitor=([^;]+)/)?.[1];
+  const storedSession = cookie.match(/(?:^|;\s*)nb_session=([^;]+)/)?.[1];
+  return {
+    visitorId: storedVisitor || `v_${crypto.randomUUID()}`,
+    sessionId: storedSession || `s_${crypto.randomUUID()}`
+  };
+}
+
+function anonymizedIp(ipAddress) {
+  if (!ipAddress) return null;
+  return crypto.createHmac('sha256', process.env.CLICK_HASH_SECRET || process.env.JWT_SECRET || 'netbox-click').update(ipAddress).digest('hex');
+}
+
+function suspectedBot(userAgent) {
+  return /bot|crawler|spider|slurp|facebookexternalhit|preview/i.test(String(userAgent || ''));
 }
 
 function optionalText(value) {
@@ -635,12 +666,35 @@ class LinkController {
         });
       }
 
+      if (!link.active) {
+        return res.status(410).json({ error: 'Link indisponível' });
+      }
+
+      const identity = trackingIdentity(req);
+      const visitorData = collectVisitorTrackingData(req);
+      const isSuspectedBot = suspectedBot(visitorData.userAgent);
+      const recentClick = await prisma.click.findFirst({
+        where: { linkId: link.id, visitorId: identity.visitorId, clickedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
+        select: { id: true }
+      });
       const click = await prisma.click.create({
         data: {
-          ...collectVisitorTrackingData(req),
+          ...visitorData,
+          ipAddress: null,
+          clickCode: `CLK-${crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`,
+          visitorId: identity.visitorId,
+          sessionId: identity.sessionId,
+          ipHash: anonymizedIp(visitorData.ipAddress),
+          destinationUrl: link.originalUrl,
+          isUnique: !recentClick,
+          isSuspectedBot,
+          isValid: !isSuspectedBot,
           linkId: link.id
         }
       });
+
+      res.cookie('nb_visitor', identity.visitorId, { maxAge: 365 * 24 * 60 * 60 * 1000, sameSite: 'lax', httpOnly: true, secure: req.secure });
+      res.cookie('nb_session', identity.sessionId, { maxAge: 30 * 60 * 1000, sameSite: 'lax', httpOnly: true, secure: req.secure });
 
       publishRealtimeEvent('link-clicked', {
         linkId: link.id,
@@ -648,7 +702,7 @@ class LinkController {
         clickedAt: click.clickedAt
       });
 
-      return res.redirect(appendReferralCode(link.originalUrl, shortCode));
+      return res.redirect(appendTrackingParameters(link.originalUrl, shortCode, click.clickCode, identity.visitorId));
 
     } catch (error) {
       console.error(error);
@@ -920,6 +974,12 @@ class LinkController {
           whatsappLink,
           promoLink,
           latestClickAt: latestClick?.clickedAt || null,
+          clickEvents: link.clicks.map(click => ({
+            id: click.id,
+            clickedAt: click.clickedAt,
+            city: click.geoCity || null,
+            source: click.source || click.utmSource || null
+          })),
           conversionEvents: link.conversions.map(conversion => ({
             id: conversion.id,
             attendanceId: conversion.attendanceId,
@@ -964,7 +1024,9 @@ class LinkController {
             ? 'whatsapp'
             : link.campaignId
               ? 'campaign'
-              : 'individual',
+              : /netbox/i.test(link.originalUrl)
+                ? 'official'
+                : 'individual',
           campaignName: link.campaign?.name || null
         };
       });
@@ -1031,10 +1093,26 @@ class LinkController {
         phone: whatsappLink?.whatsappNumber
       });
 
+      const identity = trackingIdentity(req);
+      const technicalData = collectVisitorTrackingData(req);
+      const isSuspectedBot = suspectedBot(technicalData.userAgent);
+      const recentClick = await prisma.click.findFirst({
+        where: { linkId: link.id, visitorId: identity.visitorId, clickedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
+        select: { id: true }
+      });
       const click = await prisma.click.create({
         data: {
-          ...collectVisitorTrackingData(req),
+          ...technicalData,
+          ipAddress: null,
           source: visitorData.source || 'whatsapp',
+          clickCode: `CLK-${crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`,
+          visitorId: identity.visitorId,
+          sessionId: identity.sessionId,
+          ipHash: anonymizedIp(technicalData.ipAddress),
+          destinationUrl: destination,
+          isUnique: !recentClick,
+          isSuspectedBot,
+          isValid: !isSuspectedBot,
           linkId: link.id
         }
       });
@@ -1051,8 +1129,9 @@ class LinkController {
           product,
           destination,
           ...visitorData,
-          ...collectVisitorTrackingData(req),
-          linkId: link.id
+          ...technicalData,
+          linkId: link.id,
+          clickId: click.id
         }
       });
 

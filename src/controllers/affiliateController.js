@@ -130,14 +130,27 @@ class AffiliateController {
         data.active = active;
       }
 
-      const affiliate =
-        await prisma.affiliate.update({
-          where: {
-            id: Number(id)
-          },
-
+      const affiliate = await prisma.$transaction(async (transaction) => {
+        const updatedAffiliate = await transaction.affiliate.update({
+          where: { id: Number(id) },
           data
         });
+
+        const userData = {};
+        if (data.name !== undefined) userData.name = data.name;
+        if (data.email !== undefined) userData.email = data.email;
+        if (data.city !== undefined) userData.city = data.city;
+        if (data.photoUrl !== undefined) userData.photoUrl = data.photoUrl;
+
+        if (updatedAffiliate.userId && Object.keys(userData).length > 0) {
+          await transaction.user.update({
+            where: { id: updatedAffiliate.userId },
+            data: userData
+          });
+        }
+
+        return updatedAffiliate;
+      });
 
       return res.json(affiliate);
 
@@ -160,19 +173,62 @@ class AffiliateController {
   async delete(req, res) {
     try {
       const { id } = req.params;
+      const affiliateId = Number(id);
+
+      if (!Number.isInteger(affiliateId) || affiliateId <= 0) {
+        return res.status(400).json({ error: 'Afiliado inválido' });
+      }
+
+      const affiliate = await prisma.affiliate.findUnique({
+        where: { id: affiliateId },
+        include: {
+          _count: {
+            select: {
+              links: true,
+              whatsappLinks: true,
+              crmDeals: true,
+              affiliateCommissions: true
+            }
+          }
+        }
+      });
+
+      if (!affiliate) {
+        return res.status(404).json({ error: 'Afiliado não encontrado' });
+      }
+
+      const hasHistory = Object.values(affiliate._count).some((count) => count > 0);
+
+      if (hasHistory) {
+        await prisma.affiliate.update({
+          where: { id: affiliateId },
+          data: { active: false }
+        });
+
+        return res.json({
+          message: 'Afiliado arquivado porque possui histórico vinculado',
+          archived: true
+        });
+      }
 
       await prisma.affiliate.delete({
         where: {
-          id: Number(id)
+          id: affiliateId
         }
       });
 
       return res.json({
         message:
-          'Afiliado removido'
+          'Afiliado removido',
+        archived: false
       });
 
     } catch (error) {
+      if (error?.code === 'P2003') {
+        return res.status(409).json({
+          error: 'Não é possível remover este afiliado porque possui dados vinculados'
+        });
+      }
       console.error(error);
 
       return res.status(500).json({
