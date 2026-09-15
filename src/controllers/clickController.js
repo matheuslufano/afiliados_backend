@@ -116,7 +116,28 @@ class ClickController {
         prisma.click.count({ where }),
         prisma.click.findMany({ where, select: clickSelect(), orderBy, skip: (page - 1) * limit, take: limit })
       ]);
-      return res.json({ data: data.map((click) => publicClick(req, click)), pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } });
+      const linkIds = [...new Set(data.map((click) => click.link?.id).filter(Boolean))];
+      const clickSequence = linkIds.length
+        ? await prisma.click.findMany({
+            where: { linkId: { in: linkIds } },
+            select: { id: true, linkId: true },
+            orderBy: [{ linkId: 'asc' }, { clickedAt: 'asc' }, { id: 'asc' }]
+          })
+        : [];
+      const clickPositions = new Map();
+      const nextPositionByLink = new Map();
+      clickSequence.forEach((click) => {
+        const nextPosition = (nextPositionByLink.get(click.linkId) || 0) + 1;
+        nextPositionByLink.set(click.linkId, nextPosition);
+        clickPositions.set(click.id, nextPosition);
+      });
+      const rankedData = data.map((click) => ({
+        ...click,
+        link: click.link
+          ? { ...click.link, clickPosition: clickPositions.get(click.id) || null }
+          : click.link
+      }));
+      return res.json({ data: rankedData.map((click) => publicClick(req, click)), pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } });
     } catch (error) { console.error(error); return res.status(500).json({ error: 'Erro ao listar cliques' }); }
   }
 

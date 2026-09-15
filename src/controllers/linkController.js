@@ -249,6 +249,7 @@ async function formatLinkResponse(req, link) {
   return {
     id: link.id,
     name: link.name,
+    campaignId: link.campaignId || null,
     originalUrl: link.originalUrl,
     shortCode: link.shortCode,
     promoLink,

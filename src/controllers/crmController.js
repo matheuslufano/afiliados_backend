@@ -93,6 +93,11 @@ function toPlainDecimal(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function hasIdentifiedContactNumber(value) {
+  const phone = String(value || '').replace(/\D/g, '');
+  return Boolean(phone && /^\d{10,15}$/.test(phone));
+}
+
 function normalizeText(value) {
   return String(value || '')
     .normalize('NFD')
@@ -399,6 +404,16 @@ async function syncConvertedClients() {
   let updated = 0;
 
   for (const conversion of conversions) {
+    // Uma conversão isolada (inclusive gerada apenas pelo clique no link)
+    // não cria cartão. O cartão automático depende de atendimento Chatmix
+    // iniciado e telefone de WhatsApp identificado.
+    if (
+      !conversion.attendanceId ||
+      !hasIdentifiedContactNumber(conversion.visitorPhone)
+    ) {
+      continue;
+    }
+
     const placement = deriveConversionPlacement(conversion);
     const sourceName = sourceForConversion(conversion);
     const stage =
@@ -451,10 +466,8 @@ async function syncConvertedClients() {
       : null;
     const existingDeal = conversion.crmDeal || attendanceDeal;
 
-    // Atendimentos do Chatmix só podem entrar no CRM quando o webhook de
-    // abertura já criou o cartão. Um clique/conversão isolado não deve criar
-    // um novo cartão automaticamente.
-    if (conversion.attendanceId && !existingDeal) {
+    // O webhook de abertura deve ter criado o cartão antes da sincronização.
+    if (!existingDeal) {
       continue;
     }
 

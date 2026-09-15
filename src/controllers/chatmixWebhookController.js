@@ -224,6 +224,14 @@ function normalizePhone(value) {
   return phone || null;
 }
 
+function hasIdentifiedContactNumber(value) {
+  const phone = normalizePhone(value);
+
+  // Numeros de contato brasileiros costumam ter 10 ou 11 digitos; o
+  // prefixo internacional 55 pode elevar o total para 12 ou 13.
+  return Boolean(phone && /^\d{10,15}$/.test(phone));
+}
+
 function normalizeDocument(value) {
   const document = String(value || '').replace(/\D/g, '');
   return document || null;
@@ -549,6 +557,15 @@ async function createOrUpdateCrmDealFromAttendance(
 
     if (!createIfMissing) {
       return { deal: null, created: false, ignored: true };
+    }
+
+    if (!hasIdentifiedContactNumber(visitorData.visitorPhone)) {
+      return {
+        deal: null,
+        created: false,
+        ignored: true,
+        reason: 'contact number not identified'
+      };
     }
 
     const placement = await ensureChatmixCrmPlacement(transaction);
@@ -910,10 +927,14 @@ class ChatmixWebhookController {
       }
 
       if (!link) {
-        const status = crmAttendance?.created ? 'received' : 'updated';
+        const status = crmAttendance?.ignored
+          ? 'ignored'
+          : crmAttendance?.created
+            ? 'received'
+            : 'updated';
         await persistChatmixWebhookEvent(req, payload, {
           status,
-          reason: 'link not resolved',
+          reason: crmAttendance?.reason || 'link not resolved',
           crmDealId: crmAttendance?.deal?.id || null,
           shortCode,
           affiliateId: link?.affiliateId || null,
@@ -1032,3 +1053,4 @@ class ChatmixWebhookController {
 module.exports = new ChatmixWebhookController();
 module.exports.codeFromText = codeFromText;
 module.exports.extractShortCode = extractShortCode;
+module.exports.hasIdentifiedContactNumber = hasIdentifiedContactNumber;
