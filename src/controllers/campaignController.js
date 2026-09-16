@@ -7,6 +7,31 @@ const {
   getDefaultLandingPageUrl
 } = require('../utils/publicUrls');
 
+function normalizeClientName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function hasIdentifiedClient(conversion) {
+  const name = normalizeClientName(conversion?.visitorName);
+  const placeholder = new Set([
+    'cliente sem nome',
+    'cliente nao identificado',
+    'nao informado',
+    'nao identificado',
+    'unknown'
+  ]);
+  return Boolean(
+    name &&
+    !placeholder.has(name) &&
+    String(conversion?.visitorPhone || '').replace(/\D/g, '')
+  );
+}
+
 async function getDefaultUserId() {
   if (process.env.DEFAULT_USER_ID) {
     const userId = Number(process.env.DEFAULT_USER_ID);
@@ -151,19 +176,19 @@ function formatCampaign(req, campaign) {
       city: click.geoCity || null,
       source: click.source || click.utmSource || null
     })),
-    conversions: link.conversions?.length || 0,
-    conversionEvents: (link.conversions || []).map((conversion) =>
+    conversions: (link.conversions || []).filter(hasIdentifiedClient).length,
+    conversionEvents: (link.conversions || []).filter(hasIdentifiedClient).map((conversion) =>
       formatConversionEvent(conversion, link)
     ),
     whatsappLink: buildWhatsappTrackingUrl(req, link.shortCode),
     linkType: getLinkType(link),
-    affiliate: link.affiliate
+    affiliate: (link.affiliate || link.whatsappLinks?.[0]?.affiliate)
       ? {
-          id: link.affiliate.id,
-          name: link.affiliate.name,
-          email: link.affiliate.email,
-          city: link.affiliate.city,
-          photoUrl: link.affiliate.photoUrl
+          id: (link.affiliate || link.whatsappLinks[0].affiliate).id,
+          name: (link.affiliate || link.whatsappLinks[0].affiliate).name,
+          email: (link.affiliate || link.whatsappLinks[0].affiliate).email,
+          city: (link.affiliate || link.whatsappLinks[0].affiliate).city,
+          photoUrl: (link.affiliate || link.whatsappLinks[0].affiliate).photoUrl
         }
       : null
   }));
@@ -325,7 +350,22 @@ class CampaignController {
               affiliate: true,
               whatsappLinks: {
                 orderBy: { createdAt: 'desc' },
-                select: { id: true, name: true, createdAt: true }
+                select: {
+                  id: true,
+                  name: true,
+                  createdAt: true,
+                  affiliateId: true,
+                  campaignId: true,
+                  affiliate: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true,
+                      city: true,
+                      photoUrl: true
+                    }
+                  }
+                }
               },
               clicks: true,
               conversions: {
@@ -353,6 +393,58 @@ class CampaignController {
               }
             }
           }
+        }
+      });
+
+      const orphanWhatsAppLinks = await prisma.link.findMany({
+        where: {
+          campaignId: null,
+          whatsappLinks: { some: {} }
+        },
+        include: {
+          affiliate: true,
+          whatsappLinks: {
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              name: true,
+              createdAt: true,
+              affiliateId: true,
+              campaignId: true,
+              affiliate: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  city: true,
+                  photoUrl: true
+                }
+              }
+            }
+          },
+          clicks: true,
+          conversions: {
+            orderBy: { convertedAt: 'desc' },
+            include: {
+              crmDeal: {
+                include: {
+                  status: true,
+                  stage: true,
+                  responsibleUser: { select: { name: true } },
+                  history: { orderBy: { createdAt: 'asc' } }
+                }
+              }
+            }
+          }
+        }
+      });
+
+      const campaignsById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+      orphanWhatsAppLinks.forEach((link) => {
+        const campaignId = link.whatsappLinks[0]?.campaignId;
+        const campaign = campaignsById.get(campaignId);
+        if (campaign && !campaign.links.some((item) => item.id === link.id)) {
+          campaign.links.push(link);
         }
       });
 
