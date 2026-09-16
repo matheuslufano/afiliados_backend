@@ -976,7 +976,7 @@ class LinkController {
       );
 
       const totalAttendances = affiliate.links.reduce(
-        (acc, link) => acc + link.conversions.length,
+        (acc, link) => acc + link.conversions.filter(hasIdentifiedClient).length,
         0
       );
 
@@ -994,8 +994,9 @@ class LinkController {
         const displayName = isWhatsAppLink
           ? (link.whatsappLinks[0]?.name || link.name)
           : link.name;
-        const attendances = link.conversions.length;
+        const attendances = link.conversions.filter(hasIdentifiedClient).length;
         const identifiedConversions = link.conversions.filter(hasIdentifiedClient).length;
+        const identifiedConversionEvents = link.conversions.filter(hasIdentifiedClient);
 
         return {
           id: link.id,
@@ -1014,7 +1015,7 @@ class LinkController {
             city: click.geoCity || null,
             source: click.source || click.utmSource || null
           })),
-          conversionEvents: link.conversions.map(conversion => ({
+          conversionEvents: identifiedConversionEvents.map(conversion => ({
             id: conversion.id,
             attendanceId: conversion.attendanceId,
             type: conversion.type,
@@ -1076,9 +1077,7 @@ class LinkController {
         totalConversions,
         totalContacts: contacts.length,
         contacts,
-        conversionEvents: formattedLinks.flatMap(
-          link => link.conversionEvents
-        ),
+        conversionEvents: formattedLinks.flatMap(link => link.conversionEvents),
         links: formattedLinks
       });
     } catch (error) {
