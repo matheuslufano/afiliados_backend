@@ -86,9 +86,20 @@ function normalizeContactName(value) {
     .replace(/\s+/g, ' ');
 }
 
+function isPlaceholderClientName(value) {
+  return new Set([
+    'cliente sem nome',
+    'cliente nao identificado',
+    'nao informado',
+    'nao identificado',
+    'unknown',
+  ]).has(normalizeContactName(value));
+}
+
 function hasIdentifiedClient(conversion) {
   return Boolean(
     String(conversion?.visitorName || '').trim() &&
+    !isPlaceholderClientName(conversion?.visitorName) &&
     normalizePhone(conversion?.visitorPhone)
   );
 }
