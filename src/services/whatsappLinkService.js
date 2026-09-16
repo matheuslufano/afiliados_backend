@@ -1,7 +1,12 @@
 const QRCode = require('qrcode');
 const prisma = require('../database/prisma');
 const { generateAffiliateCode } = require('../utils/affiliateCodes');
-const { buildAffiliateUrl, buildWhatsappTrackingUrl, getDefaultLandingPageUrl } = require('../utils/publicUrls');
+const {
+  buildAffiliateUrl,
+  buildNamedWhatsappTrackingUrl,
+  getDefaultLandingPageUrl,
+  slugify
+} = require('../utils/publicUrls');
 const {
   DEFAULT_IDENTIFICATION_TEMPLATE,
   buildWhatsAppMessage,
@@ -152,22 +157,18 @@ function buildValues(payload, context) {
 }
 
 async function format(req, item) {
-  const params = new URLSearchParams({
-    whatsappLinkId: String(item.id),
-    message: item.finalMessage,
-    source: 'whatsapp-link'
-  });
-  const whatsappUrl = `${buildWhatsappTrackingUrl(req, item.link.shortCode)}?${params.toString()}`;
+  const whatsappUrl = buildNamedWhatsappTrackingUrl(req, item.link.shortCode, item.name);
   return {
     ...item,
     whatsappUrl,
+    whatsappSlug: slugify(item.name),
     affiliateCodeId: item.linkId,
     affiliateCode: item.link.shortCode,
     qrCode: await QRCode.toDataURL(whatsappUrl, { margin: 1, width: 260 })
   };
 }
 
-async function resolveTrackingTarget({ linkId, whatsappLinkId, message }) {
+async function resolveTrackingTarget({ linkId, whatsappLinkId, slug, message }) {
   const parsedWhatsAppLinkId = Number(whatsappLinkId);
   const hasWhatsAppLinkId = Number.isInteger(parsedWhatsAppLinkId) && parsedWhatsAppLinkId > 0;
   const normalizedMessage = String(message || '').trim();
@@ -180,6 +181,16 @@ async function resolveTrackingTarget({ linkId, whatsappLinkId, message }) {
     : null;
 
   if (exactItem) return exactItem;
+
+  if (slug) {
+    const candidates = await prisma.whatsAppLink.findMany({
+      where: { linkId },
+      orderBy: { updatedAt: 'desc' },
+      select: { name: true, whatsappNumber: true, finalMessage: true }
+    });
+    const namedItem = candidates.find((item) => slugify(item.name) === slug);
+    if (namedItem) return namedItem;
+  }
 
   return prisma.whatsAppLink.findFirst({
     where: {

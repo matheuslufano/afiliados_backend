@@ -60,6 +60,16 @@ router.delete(
 );
 
 router.get(
+  '/links/:shortCode/whatsapp/:linkSlug',
+  linkController.whatsapp
+);
+
+router.post(
+  '/links/:shortCode/whatsapp/:linkSlug',
+  linkController.whatsapp
+);
+
+router.get(
   '/links/:shortCode/whatsapp',
   linkController.whatsapp
 );

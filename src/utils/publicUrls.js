@@ -41,14 +41,30 @@ function buildWhatsappTrackingUrl(req, shortCode) {
   return `${publicAppBaseUrl(req)}/links/${encodeURIComponent(shortCode)}/whatsapp`;
 }
 
+function slugify(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'whatsapp';
+}
+
+function buildNamedWhatsappTrackingUrl(req, shortCode, name) {
+  return `${publicAppBaseUrl(req)}/links/${encodeURIComponent(shortCode)}/whatsapp/${encodeURIComponent(slugify(name))}`;
+}
+
 function getDefaultLandingPageUrl() {
   return String(process.env.LANDING_PAGE_URL || '').trim();
 }
 
 module.exports = {
   buildAffiliateUrl,
+  buildNamedWhatsappTrackingUrl,
   buildWhatsappTrackingUrl,
   getDefaultLandingPageUrl,
   inferAppBaseUrl,
-  publicAppBaseUrl
+  publicAppBaseUrl,
+  slugify
 };

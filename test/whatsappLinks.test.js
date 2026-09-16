@@ -105,7 +105,10 @@ test('novo código é criado e relacionado ao link WhatsApp', async () => {
   assert.equal(result.campaignId, 1);
   assert.equal(result.affiliateId, 2);
   assert.match(result.finalMessage, /Código do afiliado: [a-f0-9]{8}/);
-  assert.equal(new URL(result.whatsappUrl).searchParams.get('whatsappLinkId'), '21');
+  assert.equal(
+    result.whatsappUrl,
+    'http://localhost:3001/links/a1b2c3d4/whatsapp/setembro-marcos-whatsapp'
+  );
   restore(originals);
 });
 

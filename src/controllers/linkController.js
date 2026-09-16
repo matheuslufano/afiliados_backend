@@ -86,6 +86,13 @@ function normalizeContactName(value) {
     .replace(/\s+/g, ' ');
 }
 
+function hasIdentifiedClient(conversion) {
+  return Boolean(
+    String(conversion?.visitorName || '').trim() &&
+    normalizePhone(conversion?.visitorPhone)
+  );
+}
+
 function contactIdentity(conversion) {
   const document = normalizeDocument(conversion.visitorDocument);
   if (document) return `document:${document}`;
@@ -123,6 +130,7 @@ function contactsFromAffiliateLinks(links) {
 
   links.forEach((link) => {
     link.conversionEvents.forEach((conversion) => {
+      if (!hasIdentifiedClient(conversion)) return;
       const identity = contactIdentity(conversion);
       if (!identity) return;
 
@@ -927,7 +935,8 @@ class LinkController {
                 select: { id: true, name: true }
               },
               whatsappLinks: {
-                select: { id: true }
+                select: { id: true, name: true, createdAt: true },
+                orderBy: { createdAt: 'desc' }
               },
               clicks: {
                 orderBy: {
@@ -955,8 +964,13 @@ class LinkController {
         0
       );
 
-      const totalConversions = affiliate.links.reduce(
+      const totalAttendances = affiliate.links.reduce(
         (acc, link) => acc + link.conversions.length,
+        0
+      );
+
+      const totalConversions = affiliate.links.reduce(
+        (acc, link) => acc + link.conversions.filter(hasIdentifiedClient).length,
         0
       );
 
@@ -965,13 +979,21 @@ class LinkController {
         const whatsappLink = buildWhatsappTrackingUrl(req, link.shortCode);
         const latestClick = link.clicks[0] || null;
 
+        const isWhatsAppLink = link.whatsappLinks.length > 0;
+        const displayName = isWhatsAppLink
+          ? (link.whatsappLinks[0]?.name || link.name)
+          : link.name;
+        const attendances = link.conversions.length;
+        const identifiedConversions = link.conversions.filter(hasIdentifiedClient).length;
+
         return {
           id: link.id,
-          name: link.name,
+          name: displayName,
           shortCode: link.shortCode,
           originalUrl: link.originalUrl,
           clicks: link.clicks.length,
-          conversions: link.conversions.length,
+          conversions: identifiedConversions,
+          attendances,
           whatsappLink,
           promoLink,
           latestClickAt: latestClick?.clickedAt || null,
@@ -1039,6 +1061,7 @@ class LinkController {
         photoUrl: affiliate.photoUrl,
         totalLinks: affiliate.links.length,
         totalClicks,
+        totalAttendances,
         totalConversions,
         totalContacts: contacts.length,
         contacts,
@@ -1081,9 +1104,10 @@ class LinkController {
       const whatsappLink = await resolveTrackingTarget({
         linkId: link.id,
         whatsappLinkId: req.query.whatsappLinkId,
+        slug: req.params.linkSlug,
         message: requestedMessage
       });
-      const isManagedWhatsAppLink = Boolean(req.query.whatsappLinkId) || req.query.source === 'whatsapp-link';
+      const isManagedWhatsAppLink = Boolean(req.params.linkSlug) || Boolean(req.query.whatsappLinkId) || req.query.source === 'whatsapp-link';
       if (isManagedWhatsAppLink && !whatsappLink) {
         return res.status(404).json({
           error: 'Configuração do link WhatsApp não encontrada'
