@@ -2,6 +2,7 @@ const prisma = require('../database/prisma');
 const ExcelJS = require('exceljs');
 const { buildAffiliateUrl } = require('../utils/publicUrls');
 const { getLinkType } = require('../utils/linkTypes');
+const { profilePhotoUrl } = require('../utils/profilePhotos');
 
 const MAX_LIMIT = 200;
 const SORT_FIELDS = {
@@ -90,6 +91,17 @@ function clickSelect() {
 function publicClick(req, click) {
   const link = click.link ? {
     ...click.link,
+    affiliate: click.link.affiliate
+      ? {
+          ...click.link.affiliate,
+          photoUrl:
+            click.link.affiliate.photoUrl ||
+            profilePhotoUrl(
+              'affiliate',
+              click.link.affiliate.id || click.link.affiliate.email || click.link.affiliate.name
+            )
+        }
+      : click.link.affiliate,
     promoLink: buildAffiliateUrl(req, click.link.shortCode),
     linkType: getLinkType(click.link)
   } : click.link;
@@ -200,7 +212,7 @@ class ClickController {
       const where = filtersFromQuery(req.query);
       const clicks = await prisma.click.findMany({ where, select: { isUnique: true, conversions: { select: { id: true } }, link: { select: { affiliate: { select: { id: true, name: true, photoUrl: true } } } } } });
       const rows = new Map(); const total = clicks.length;
-      clicks.forEach((click) => { const affiliate = click.link.affiliate; if (!affiliate) return; const row = rows.get(affiliate.id) || { affiliateId: affiliate.id, affiliateName: affiliate.name, avatar: affiliate.photoUrl, clicks: 0, uniqueClicks: 0, leads: 0, conversions: 0 }; row.clicks++; row.uniqueClicks += click.isUnique ? 1 : 0; row.conversions += click.conversions.length; row.leads += click.conversions.length; rows.set(affiliate.id, row); });
+      clicks.forEach((click) => { const affiliate = click.link.affiliate; if (!affiliate) return; const row = rows.get(affiliate.id) || { affiliateId: affiliate.id, affiliateName: affiliate.name, avatar: affiliate.photoUrl || profilePhotoUrl('affiliate', affiliate.id || affiliate.name), clicks: 0, uniqueClicks: 0, leads: 0, conversions: 0 }; row.clicks++; row.uniqueClicks += click.isUnique ? 1 : 0; row.conversions += click.conversions.length; row.leads += click.conversions.length; rows.set(affiliate.id, row); });
       return res.json([...rows.values()].map((row) => ({ ...row, conversionRate: row.clicks ? (row.conversions / row.clicks) * 100 : 0, percentage: total ? (row.clicks / total) * 100 : 0 })).sort((a, b) => b.clicks - a.clicks));
     } catch (error) { console.error(error); return res.status(500).json({ error: 'Erro ao gerar ranking' }); }
   }

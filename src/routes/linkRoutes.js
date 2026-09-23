@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireManager } = require('../middleware/auth');
 
 const linkController = require(
   '../controllers/linkController'
@@ -8,11 +8,14 @@ const linkController = require(
 
 router.get(
   '/affiliate/:id/stats',
+  requireAuth,
+  requireManager,
   linkController.affiliateStats
 );
 
 router.get(
   '/links',
+  requireAuth,
   linkController.list
 );
 
@@ -36,26 +39,31 @@ router.delete(
 
 router.post(
   '/links',
+  requireAuth,
   linkController.create
 );
 
 router.put(
   '/links/:id',
+  requireAuth,
   linkController.update
 );
 
 router.delete(
   '/links/:id',
+  requireAuth,
   linkController.delete
 );
 
 router.put(
   '/conversions/:id',
+  requireAuth,
   linkController.updateConversion
 );
 
 router.delete(
   '/conversions/:id',
+  requireAuth,
   linkController.deleteConversion
 );
 

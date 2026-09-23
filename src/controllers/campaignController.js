@@ -3,9 +3,12 @@ const { getLinkType } = require('../utils/linkTypes');
 const prisma = require('../database/prisma');
 const {
   buildAffiliateUrl,
+  buildPublicLinkUrls,
   buildWhatsappTrackingUrl,
-  getDefaultLandingPageUrl
+  getDefaultLandingPageUrl,
+  validateDestinationUrl
 } = require('../utils/publicUrls');
+const { profilePhotoUrl } = require('../utils/profilePhotos');
 
 function normalizeClientName(value) {
   return String(value || '')
@@ -162,13 +165,15 @@ function formatConversionEvent(conversion, link) {
 }
 
 function formatCampaign(req, campaign) {
-  const links = campaign.links.map((link) => ({
+  const links = campaign.links.map((link) => {
+    const publicUrls = buildPublicLinkUrls(req, link.shortCode, link.whatsappLinks?.[0]?.name || '');
+    return {
     id: link.id,
     name: link.name,
     displayName: link.whatsappLinks?.[0]?.name || link.name,
     originalUrl: link.originalUrl,
     shortCode: link.shortCode,
-    promoLink: buildAffiliateUrl(req, link.shortCode),
+    promoLink: link.whatsappLinks?.length ? publicUrls.whatsappNamedTrackingUrl : publicUrls.affiliateUrl,
     clicks: link.clicks.length,
     clickEvents: link.clicks.map((click) => ({
       id: click.id,
@@ -180,7 +185,7 @@ function formatCampaign(req, campaign) {
     conversionEvents: (link.conversions || []).filter(hasIdentifiedClient).map((conversion) =>
       formatConversionEvent(conversion, link)
     ),
-    whatsappLink: buildWhatsappTrackingUrl(req, link.shortCode),
+    whatsappLink: publicUrls.whatsappNamedTrackingUrl,
     linkType: getLinkType(link),
     affiliate: (link.affiliate || link.whatsappLinks?.[0]?.affiliate)
       ? {
@@ -188,10 +193,18 @@ function formatCampaign(req, campaign) {
           name: (link.affiliate || link.whatsappLinks[0].affiliate).name,
           email: (link.affiliate || link.whatsappLinks[0].affiliate).email,
           city: (link.affiliate || link.whatsappLinks[0].affiliate).city,
-          photoUrl: (link.affiliate || link.whatsappLinks[0].affiliate).photoUrl
+          photoUrl:
+            (link.affiliate || link.whatsappLinks[0].affiliate).photoUrl ||
+            profilePhotoUrl(
+              'affiliate',
+              (link.affiliate || link.whatsappLinks[0].affiliate).id ||
+                (link.affiliate || link.whatsappLinks[0].affiliate).email ||
+                (link.affiliate || link.whatsappLinks[0].affiliate).name
+            )
         }
       : null
-  }));
+    };
+  });
 
   const totalClicks = links.reduce(
     (sum, link) => sum + link.clicks,
@@ -235,6 +248,8 @@ class CampaignController {
       const destinationUrl = String(
         req.body.destinationUrl || getDefaultLandingPageUrl()
       ).trim();
+      const destinationValidation = validateDestinationUrl(destinationUrl);
+      if (!destinationValidation.ok) return res.status(400).json({ error: destinationValidation.error });
       const affiliateIds = Array.isArray(req.body.affiliateIds)
         ? req.body.affiliateIds.map(Number)
         : [];
@@ -465,6 +480,9 @@ class CampaignController {
       const id = Number(req.params.id);
       const name = String(req.body.name || '').trim();
       const destinationUrl = String(req.body.destinationUrl || '').trim();
+      const destinationValidation = validateDestinationUrl(destinationUrl);
+      if (!destinationValidation.ok) return res.status(400).json({ error: destinationValidation.error });
+      const updateExistingDestinations = req.body.updateExistingDestinations === true;
 
       if (!Number.isFinite(id) || id <= 0) {
         return res.status(400).json({ error: 'Campanha invalida' });
@@ -564,9 +582,10 @@ class CampaignController {
             where: { OR: [{ linkId: { in: removedLinkIds } }, { conversionId: { in: removedConversionIds } }] },
             data: { linkId: null, conversionId: null }
           });
-          await tx.conversion.deleteMany({ where: { linkId: { in: removedLinkIds } } });
-          await tx.click.deleteMany({ where: { linkId: { in: removedLinkIds } } });
-          await tx.link.deleteMany({ where: { id: { in: removedLinkIds } } });
+          await tx.link.updateMany({
+            where: { id: { in: removedLinkIds } },
+            data: { active: false }
+          });
         }
 
         await tx.campaign.update({ where: { id }, data: { name, destinationUrl } });
@@ -579,10 +598,10 @@ class CampaignController {
               where: { id: item.id },
               data: {
                 name: `${name} - ${affiliate.name}`,
-                originalUrl: destinationUrl,
                 shortCode: item.shortCode,
                 affiliateUrl: buildAffiliateUrl(req, item.shortCode),
-                affiliateId: item.affiliateId
+                affiliateId: item.affiliateId,
+                ...(updateExistingDestinations ? { originalUrl: destinationUrl } : {})
               }
             });
             if (previous.shortCode !== item.shortCode || previous.affiliateId !== item.affiliateId) {
@@ -680,29 +699,13 @@ class CampaignController {
       const linkIds = campaign.links.map((link) => link.id);
 
       await prisma.$transaction([
-        prisma.click.deleteMany({
-          where: {
-            linkId: {
-              in: linkIds
-            }
-          }
+        prisma.link.updateMany({
+          where: { campaignId: id },
+          data: { active: false }
         }),
-        prisma.conversion.deleteMany({
-          where: {
-            linkId: {
-              in: linkIds
-            }
-          }
-        }),
-        prisma.link.deleteMany({
-          where: {
-            campaignId: id
-          }
-        }),
-        prisma.campaign.delete({
-          where: {
-            id
-          }
+        prisma.campaign.update({
+          where: { id },
+          data: { active: false }
         })
       ]);
 

@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const prisma = require('../database/prisma');
+const { storedProfilePhotoUrl } = require('../utils/profilePhotos');
 
 function createToken(user) {
   const secret =
@@ -59,7 +60,7 @@ class AuthController {
           name: user.name,
           email: user.email,
           city: user.city,
-          photoUrl: user.photoUrl,
+          photoUrl: storedProfilePhotoUrl(user.photoUrl, 'user', user.id || user.email),
           role: user.role,
           teamId: user.teamId
         }

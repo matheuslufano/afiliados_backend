@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const prisma = require('../database/prisma');
+const { storedProfilePhotoUrl } = require('../utils/profilePhotos');
 
 function verifyToken(token) {
   const [encodedPayload, signature] = String(token || '').split('.');
@@ -59,7 +60,10 @@ async function requireAuth(req, res, next) {
       return res.status(401).json({ error: 'Usuario inativo ou inexistente' });
     }
 
-    req.user = user;
+    req.user = {
+      ...user,
+      photoUrl: storedProfilePhotoUrl(user.photoUrl, 'user', user.id || user.email)
+    };
     return next();
   } catch (error) {
     console.error(error);

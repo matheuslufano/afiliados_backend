@@ -1,4 +1,5 @@
 const prisma = require('../database/prisma');
+const { resolveProfilePhotoUrl, storedProfilePhotoUrl } = require('../utils/profilePhotos');
 
 function getErrorDetails(error) {
   const parts = [];
@@ -16,13 +17,18 @@ function getErrorDetails(error) {
   return message.slice(0, 700);
 }
 
-function formatUser(user) {
+async function formatUser(user) {
+  const photoUrl = storedProfilePhotoUrl(
+    user.photoUrl,
+    'user',
+    user.id || user.email || user.name
+  );
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     city: user.city,
-    photoUrl: user.photoUrl,
+    photoUrl,
     role: user.role,
     active: user.active,
     teamId: user.teamId,
@@ -39,7 +45,7 @@ class UserController {
         }
       });
 
-      return res.json(users.map(formatUser));
+      return res.json(await Promise.all(users.map(formatUser)));
     } catch (error) {
       console.error(error);
 
@@ -74,6 +80,7 @@ class UserController {
         });
       }
 
+      const generatedPhotoUrl = photoUrl || await resolveProfilePhotoUrl('profile', email);
       const user = await prisma.$transaction(async (transaction) => {
         const createdUser = await transaction.user.create({
           data: {
@@ -81,7 +88,7 @@ class UserController {
             email,
             password,
             city: city || null,
-            photoUrl: photoUrl || null,
+            photoUrl: generatedPhotoUrl,
             role
           }
         });
@@ -91,7 +98,7 @@ class UserController {
             name,
             email,
             city: city || null,
-            photoUrl: photoUrl || null,
+            photoUrl: generatedPhotoUrl,
             userId: createdUser.id
           }
         });
@@ -99,7 +106,7 @@ class UserController {
         return createdUser;
       });
 
-      return res.status(201).json(formatUser(user));
+      return res.status(201).json(await formatUser(user));
     } catch (error) {
       if (error?.code === 'P2002') {
         return res.status(409).json({
@@ -122,7 +129,8 @@ class UserController {
 
       if (!Number.isFinite(id) || id <= 0) {
         return res.status(400).json({
-          error: 'Usuario invalido'
+          error: 'Usuário inválido.',
+          reason: 'O identificador recebido não corresponde a um usuário válido.'
         });
       }
 
@@ -155,7 +163,7 @@ class UserController {
       }
 
       if (req.body.photoUrl !== undefined) {
-        data.photoUrl = String(req.body.photoUrl || '').trim() || null;
+        data.photoUrl = String(req.body.photoUrl || '').trim() || await resolveProfilePhotoUrl('profile', id);
       }
 
       if (req.body.role !== undefined && req.user?.role === 'ADMIN') {
@@ -207,7 +215,7 @@ class UserController {
         return updatedUser;
       });
 
-      return res.json(formatUser(user));
+      return res.json(await formatUser(user));
     } catch (error) {
       if (error?.code === 'P2002') {
         return res.status(409).json({
@@ -243,7 +251,8 @@ class UserController {
       const totalUsers = await prisma.user.count();
       if (totalUsers <= 1) {
         return res.status(400).json({
-          error: 'Nao e possivel apagar o ultimo usuario'
+          error: 'Não é possível apagar o último usuário.',
+          reason: 'O sistema precisa manter pelo menos uma conta para permitir acesso administrativo.'
         });
       }
 
@@ -267,7 +276,8 @@ class UserController {
 
       if (!user) {
         return res.status(404).json({
-          error: 'Usuario nao encontrado'
+          error: 'Usuário não encontrado.',
+          reason: 'Ele pode já ter sido removido por outra sessão.'
         });
       }
 
@@ -276,10 +286,19 @@ class UserController {
         link.conversions.map((conversion) => conversion.id)
       );
 
-      await prisma.$transaction([
-        // O histórico comercial e os logs devem continuar disponíveis mesmo
-        // depois que o usuário e seus links forem removidos.
-        prisma.crmDeal.updateMany({
+      const deleted = await prisma.$transaction(async (tx) => {
+        // Links de WhatsApp restringem tanto o usuário criador quanto o link.
+        // Removê-los primeiro evita a falha de chave estrangeira que impedia
+        // a exclusão de usuários com atividade.
+        const whatsappLinks = await tx.whatsAppLink.deleteMany({
+          where: {
+            OR: [
+              { createdById: id },
+              { linkId: { in: linkIds } }
+            ]
+          }
+        });
+        const crmDeals = await tx.crmDeal.updateMany({
           where: {
             OR: [
               { linkId: { in: linkIds } },
@@ -290,8 +309,8 @@ class UserController {
             linkId: null,
             conversionId: null
           }
-        }),
-        prisma.webhookLog.updateMany({
+        });
+        const webhookLogs = await tx.webhookLog.updateMany({
           where: {
             OR: [
               { linkId: { in: linkIds } },
@@ -302,39 +321,50 @@ class UserController {
             linkId: null,
             conversionId: null
           }
-        }),
-        prisma.conversion.deleteMany({
+        });
+        const conversions = await tx.conversion.deleteMany({
           where: {
             linkId: {
               in: linkIds
             }
           }
-        }),
-        prisma.click.deleteMany({
+        });
+        const clicks = await tx.click.deleteMany({
           where: {
             linkId: {
               in: linkIds
             }
           }
-        }),
-        prisma.link.deleteMany({
+        });
+        const links = await tx.link.deleteMany({
           where: {
             userId: id
           }
-        }),
-        prisma.user.delete({
-          where: {
-            id
-          }
-        })
-      ]);
+        });
+        await tx.user.delete({ where: { id } });
 
-      return res.status(204).send();
+        return {
+          user: 1,
+          links: links.count,
+          whatsappLinks: whatsappLinks.count,
+          clicks: clicks.count,
+          conversions: conversions.count,
+          detachedCrmDeals: crmDeals.count,
+          detachedWebhookLogs: webhookLogs.count
+        };
+      });
+
+      return res.status(200).json({
+        message: `Usuário ${user.name} removido definitivamente.`,
+        reason: 'Os links e dados operacionais pertencentes ao usuário foram removidos; históricos comerciais foram preservados sem esses vínculos.',
+        deleted
+      });
     } catch (error) {
       console.error(error);
 
       return res.status(500).json({
-        error: 'Erro ao apagar usuario',
+        error: 'Erro ao apagar usuário.',
+        reason: 'A operação foi desfeita por segurança e o usuário não foi removido.',
         details: getErrorDetails(error)
       });
     }

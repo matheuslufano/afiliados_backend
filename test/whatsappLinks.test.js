@@ -5,6 +5,8 @@ const service = require('../src/services/whatsappLinkService');
 const {
   buildWhatsAppMessage,
   buildWhatsAppUrl,
+  normalizeWhatsAppText,
+  repairWhatsAppEmoji,
   normalizePhoneNumber
 } = require('../src/utils/whatsapp');
 
@@ -17,6 +19,23 @@ test('codifica acentos, emoji, quebra de linha e formatação', () => {
   const url = buildWhatsAppUrl({ phone: '(63) 99999-9999', message });
   assert.equal(new URL(url).searchParams.get('text'), message);
   assert.match(url, /^https:\/\/wa\.me\/5563999999999\?text=/);
+});
+
+test('recupera emoji corrompido por Windows-1252 ou pelo caractere de substituição', () => {
+  assert.equal(repairWhatsAppEmoji('Olá! \u00f0\u0178\u2018\u2039'), 'Olá! 👋');
+  assert.equal(repairWhatsAppEmoji('Olá! �'), 'Olá! 👋');
+  assert.equal(
+    new URL(buildWhatsAppUrl({ phone: '(63) 99999-9999', message: 'Olá! �' })).searchParams.get('text'),
+    'Olá! 👋'
+  );
+});
+
+test('converte quebras literais e HTML antes de abrir o WhatsApp', () => {
+  const normalized = normalizeWhatsAppText('Olá\\n\\nPlano: Fibra<br>Valor: R$ 99');
+  assert.equal(normalized, 'Olá\n\nPlano: Fibra\nValor: R$ 99');
+  const url = buildWhatsAppUrl({ phone: '(63) 99999-9999', message: normalized });
+  assert.equal(new URL(url).searchParams.get('text'), normalized);
+  assert.match(url, /%0A%0A/);
 });
 
 test('monta mensagem com placeholders de afiliado e campanha', () => {

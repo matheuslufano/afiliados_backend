@@ -4,8 +4,10 @@ const { generateAffiliateCode } = require('../utils/affiliateCodes');
 const QRCode = require('qrcode');
 const {
   buildAffiliateUrl,
+  buildNamedWhatsappTrackingUrl,
   buildWhatsappTrackingUrl,
-  getDefaultLandingPageUrl
+  getDefaultLandingPageUrl,
+  validateDestinationUrl
 } = require('../utils/publicUrls');
 const {
   buildWhatsAppUrl
@@ -16,6 +18,7 @@ const {
 const {
   publishRealtimeEvent
 } = require('../utils/realtimeEvents');
+const { profilePhotoUrl } = require('../utils/profilePhotos');
 const {
   collectVisitorTrackingData
 } = require('../utils/visitorTracking');
@@ -499,6 +502,10 @@ class LinkController {
       } = req.body;
 
       const originalUrl = String(url || getDefaultLandingPageUrl()).trim();
+      const destinationValidation = validateDestinationUrl(originalUrl);
+      if (!destinationValidation.ok) {
+        return res.status(400).json({ error: destinationValidation.error });
+      }
 
       if (!originalUrl) {
         return res.status(400).json({
@@ -986,13 +993,18 @@ class LinkController {
       );
 
       const formattedLinks = affiliate.links.map(link => {
-        const promoLink = buildAffiliateUrl(req, link.shortCode);
-        const whatsappLink = buildWhatsappTrackingUrl(req, link.shortCode);
         const latestClick = link.clicks[0] || null;
 
         const isWhatsAppLink = link.whatsappLinks.length > 0;
+        const configuredWhatsAppLink = link.whatsappLinks[0] || null;
+        const whatsappLink = configuredWhatsAppLink
+          ? buildNamedWhatsappTrackingUrl(req, link.shortCode, configuredWhatsAppLink.name)
+          : buildWhatsappTrackingUrl(req, link.shortCode);
+        const promoLink = isWhatsAppLink
+          ? whatsappLink
+          : buildAffiliateUrl(req, link.shortCode);
         const displayName = isWhatsAppLink
-          ? (link.whatsappLinks[0]?.name || link.name)
+          ? (configuredWhatsAppLink?.name || link.name)
           : link.name;
         const attendances = link.conversions.filter(hasIdentifiedClient).length;
         const identifiedConversions = link.conversions.filter(hasIdentifiedClient).length;
@@ -1069,8 +1081,8 @@ class LinkController {
 
       return res.json({
         affiliate: affiliate.name,
-        affiliatePhotoUrl: affiliate.photoUrl,
-        photoUrl: affiliate.photoUrl,
+        affiliatePhotoUrl: affiliate.photoUrl || profilePhotoUrl('affiliate', affiliate.id || affiliate.email || affiliate.name),
+        photoUrl: affiliate.photoUrl || profilePhotoUrl('affiliate', affiliate.id || affiliate.email || affiliate.name),
         totalLinks: affiliate.links.length,
         totalClicks,
         totalAttendances,
@@ -1124,7 +1136,7 @@ class LinkController {
         });
       }
       const destination = buildWhatsAppUrl({
-        message: requestedMessage,
+        message: whatsappLink?.finalMessage || requestedMessage,
         phone: whatsappLink?.whatsappNumber
       });
 

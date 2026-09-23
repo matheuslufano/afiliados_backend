@@ -1,4 +1,5 @@
 const prisma = require('../database/prisma');
+const { profilePhotoUrl } = require('../utils/profilePhotos');
 const {
   accessWhere,
   canAssign,
@@ -556,7 +557,14 @@ function formatDeal(deal) {
     createdByUserName: deal.createdByUser?.name || '',
     responsibleUserId: deal.responsibleUserId,
     responsibleUserName: deal.responsibleUser?.name || '',
-    responsibleUserPhotoUrl: deal.responsibleUser?.photoUrl || null,
+    responsibleUserPhotoUrl:
+      deal.responsibleUser?.photoUrl ||
+      (deal.responsibleUser
+        ? profilePhotoUrl(
+            'user',
+            deal.responsibleUser.id || deal.responsibleUser.email || deal.responsibleUser.name
+          )
+        : null),
     updatedByUserId: deal.updatedByUserId,
     activity:
       deal.tasks?.[0]?.title ||
@@ -913,7 +921,12 @@ class CrmController {
         active: true
       }
     });
-    return res.json(users);
+    return res.json(
+      users.map((user) => ({
+        ...user,
+        photoUrl: user.photoUrl || profilePhotoUrl('user', user.id || user.email || user.name)
+      }))
+    );
   }
 
   async createDeal(req, res) {

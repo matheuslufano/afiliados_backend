@@ -9,6 +9,56 @@ function handleError(res, error, fallback) {
 }
 
 class WhatsAppLinkController {
+  async listMessageTemplates(req, res) {
+    try {
+      return res.json(await prisma.whatsAppMessageTemplate.findMany({
+        where: { createdById: req.user.id },
+        orderBy: [{ updatedAt: 'desc' }, { name: 'asc' }],
+        select: { id: true, name: true, message: true, createdAt: true, updatedAt: true }
+      }));
+    } catch (error) {
+      return handleError(res, error, 'Erro ao listar os textos salvos.');
+    }
+  }
+
+  async createMessageTemplate(req, res) {
+    try {
+      const name = String(req.body?.name || '').trim();
+      const message = String(req.body?.message || '').trim();
+      if (!name) throw whatsappLinkService.validationError('Informe um nome para a mensagem.');
+      if (name.length > 120) throw whatsappLinkService.validationError('O nome deve ter no máximo 120 caracteres.');
+      if (!message) throw whatsappLinkService.validationError('Escreva uma mensagem antes de salvá-la.');
+      if (message.length > 1000) throw whatsappLinkService.validationError('A mensagem deve ter no máximo 1000 caracteres.');
+
+      const duplicate = await prisma.whatsAppMessageTemplate.findUnique({
+        where: { createdById_name: { createdById: req.user.id, name } },
+        select: { id: true }
+      });
+      if (duplicate) throw whatsappLinkService.validationError('Você já possui uma mensagem salva com esse nome.', 409);
+
+      return res.status(201).json(await prisma.whatsAppMessageTemplate.create({
+        data: { name, message, createdById: req.user.id },
+        select: { id: true, name: true, message: true, createdAt: true, updatedAt: true }
+      }));
+    } catch (error) {
+      return handleError(res, error, 'Erro ao salvar o texto da mensagem.');
+    }
+  }
+
+  async removeMessageTemplate(req, res) {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id < 1) throw whatsappLinkService.validationError('ID do texto salvo inválido.');
+      const result = await prisma.whatsAppMessageTemplate.deleteMany({
+        where: { id, createdById: req.user.id }
+      });
+      if (!result.count) throw whatsappLinkService.validationError('Texto salvo não encontrado ou sem permissão para apagar.', 404);
+      return res.status(204).send();
+    } catch (error) {
+      return handleError(res, error, 'Erro ao apagar o texto salvo.');
+    }
+  }
+
   async config(req, res) {
     return res.json({ whatsappNumber: configuredWhatsAppNumber() });
   }

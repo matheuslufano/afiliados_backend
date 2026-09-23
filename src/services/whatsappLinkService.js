@@ -12,6 +12,7 @@ const {
   buildWhatsAppMessage,
   buildWhatsAppUrl,
   isValidWhatsAppPhone,
+  normalizeWhatsAppText,
   normalizePhoneNumber
 } = require('../utils/whatsapp');
 
@@ -23,7 +24,7 @@ const includeRelations = {
 };
 
 const INDIVIDUAL_WHATSAPP_CAMPAIGN_NAME = 'WhatsApp individual';
-const DEFAULT_INDIVIDUAL_DESTINATION_URL = 'https://netboxfibra.com.br';
+const DEFAULT_INDIVIDUAL_DESTINATION_URL = 'https://netbox.net.br/';
 
 function validationError(message, status = 400) {
   const error = new Error(message);
@@ -122,17 +123,23 @@ async function createAffiliateCode({ req, campaign, affiliate, userId }) {
 function buildValues(payload, context) {
   const name = String(payload.name || context.link?.name || `Link WhatsApp - ${context.affiliate.name}`).trim();
   if (name.length > 120) throw validationError('O nome do link deve ter no máximo 120 caracteres.');
-  const originalMessage = String(payload.message ?? payload.originalMessage ?? '').trim();
+  const originalMessage = normalizeWhatsAppText(payload.message ?? payload.originalMessage ?? '');
   if (originalMessage.length > 1000) throw validationError('A mensagem deve ter no máximo 1000 caracteres.');
+  if (/\uFFFD/.test(originalMessage)) {
+    throw validationError('A mensagem contém um caractere inválido (�). Apague-o e insira o emoji novamente.');
+  }
   const whatsappNumber = normalizePhoneNumber(payload.whatsappNumber);
   if (!isValidWhatsAppPhone(whatsappNumber)) {
     throw validationError('Informe um número de WhatsApp brasileiro válido, com DDD.');
   }
   const appendAffiliateCode = payload.appendAffiliateCode !== false;
-  const identificationTemplate = String(
+  const identificationTemplate = normalizeWhatsAppText(
     payload.identificationTemplate || DEFAULT_IDENTIFICATION_TEMPLATE
-  ).trim();
+  );
   if (identificationTemplate.length > 500) throw validationError('O texto de identificação deve ter no máximo 500 caracteres.');
+  if (/\uFFFD/.test(identificationTemplate)) {
+    throw validationError('O texto de identificação contém um caractere inválido (�). Apague-o e insira o emoji novamente.');
+  }
   if (appendAffiliateCode && !identificationTemplate.includes('{{codigo}}')) {
     throw validationError('O texto de identificação deve conter {{codigo}}.');
   }

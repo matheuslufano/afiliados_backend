@@ -1,4 +1,9 @@
 const prisma = require('../database/prisma');
+const {
+  resolveProfilePhotoUrl,
+  storedProfilePhotoUrl,
+  withProfilePhoto
+} = require('../utils/profilePhotos');
 
 function getErrorDetails(error) {
   const parts = [];
@@ -40,6 +45,7 @@ class AffiliateController {
         });
       }
 
+      const generatedPhotoUrl = trimmedPhotoUrl || await resolveProfilePhotoUrl('affiliate', trimmedEmail);
       const affiliate =
         await prisma.affiliate.create({
           data: {
@@ -47,12 +53,12 @@ class AffiliateController {
             email: trimmedEmail,
             phone: trimmedPhone || null,
             city: trimmedCity || null,
-            photoUrl: trimmedPhotoUrl || null
+            photoUrl: generatedPhotoUrl
           }
         });
 
       return res.status(201).json(
-        affiliate
+        withProfilePhoto(affiliate, 'affiliate')
       );
     } catch (error) {
       if (error?.code === 'P2002') {
@@ -79,7 +85,14 @@ class AffiliateController {
           }
         });
 
-      return res.json(affiliates);
+      return res.json(await Promise.all(affiliates.map(async (affiliate) => ({
+        ...affiliate,
+        photoUrl: storedProfilePhotoUrl(
+          affiliate.photoUrl,
+          'affiliate',
+          affiliate.id || affiliate.email || affiliate.name
+        )
+      }))));
 
     } catch (error) {
       console.error(error);
@@ -123,7 +136,7 @@ class AffiliateController {
       }
 
       if (photoUrl !== undefined) {
-        data.photoUrl = String(photoUrl).trim() || null;
+        data.photoUrl = String(photoUrl).trim() || await resolveProfilePhotoUrl('affiliate', id);
       }
 
       if (active !== undefined) {
@@ -152,7 +165,7 @@ class AffiliateController {
         return updatedAffiliate;
       });
 
-      return res.json(affiliate);
+      return res.json(withProfilePhoto(affiliate, 'affiliate'));
 
     } catch (error) {
       if (error?.code === 'P2002') {
@@ -197,42 +210,62 @@ class AffiliateController {
         return res.status(404).json({ error: 'Afiliado não encontrado' });
       }
 
-      const hasHistory = Object.values(affiliate._count).some((count) => count > 0);
-
-      if (hasHistory) {
-        await prisma.affiliate.update({
-          where: { id: affiliateId },
-          data: { active: false }
+      const deleted = await prisma.$transaction(async (tx) => {
+        // O WhatsAppLink usa restrição de exclusão. Ele precisa ser removido
+        // antes do perfil; links e negócios permanecem como histórico, sem o
+        // vínculo com o afiliado excluído.
+        const whatsappLinks = await tx.whatsAppLink.deleteMany({
+          where: { affiliateId }
+        });
+        const commissions = await tx.affiliateCommission.deleteMany({
+          where: { affiliateId }
+        });
+        const crmDeals = await tx.crmDeal.updateMany({
+          where: { affiliateId },
+          data: { affiliateId: null }
+        });
+        const links = await tx.link.updateMany({
+          where: { affiliateId },
+          data: { affiliateId: null }
         });
 
-        return res.json({
-          message: 'Afiliado arquivado porque possui histórico vinculado',
-          archived: true
-        });
-      }
+        await tx.affiliate.delete({ where: { id: affiliateId } });
 
-      await prisma.affiliate.delete({
-        where: {
-          id: affiliateId
-        }
+        return {
+          affiliate: 1,
+          whatsappLinks: whatsappLinks.count,
+          commissions: commissions.count,
+          detachedCrmDeals: crmDeals.count,
+          detachedLinks: links.count
+        };
       });
 
       return res.json({
-        message:
-          'Afiliado removido',
-        archived: false
+        message: `Afiliado ${affiliate.name} removido definitivamente.`,
+        reason: 'Os registros históricos foram preservados sem vínculo com o perfil excluído.',
+        archived: false,
+        deleted
       });
 
     } catch (error) {
+      if (error?.code === 'P2025') {
+        return res.status(404).json({
+          error: 'Afiliado nÃ£o encontrado',
+          reason: 'O afiliado jÃ¡ foi removido ou nÃ£o estÃ¡ mais disponÃ­vel.'
+        });
+      }
+
       if (error?.code === 'P2003') {
         return res.status(409).json({
-          error: 'Não é possível remover este afiliado porque possui dados vinculados'
+          error: 'Não foi possível remover o afiliado porque ainda existem dados vinculados.',
+          reason: 'Nenhum dado foi alterado. Atualize a página e tente novamente.'
         });
       }
       console.error(error);
 
       return res.status(500).json({
-        error: 'Erro ao deletar afiliado',
+        error: 'Erro ao apagar afiliado.',
+        reason: 'A operação foi desfeita por segurança e o afiliado não foi removido.',
         details: getErrorDetails(error)
       });
     }

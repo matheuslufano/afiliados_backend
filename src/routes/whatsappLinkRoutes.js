@@ -4,6 +4,9 @@ const controller = require('../controllers/whatsappLinkController');
 
 const router = express.Router();
 router.get('/whatsapp-links/config', requireAuth, controller.config);
+router.get('/whatsapp-message-templates', requireAuth, controller.listMessageTemplates);
+router.post('/whatsapp-message-templates', requireAuth, controller.createMessageTemplate);
+router.delete('/whatsapp-message-templates/:id', requireAuth, controller.removeMessageTemplate);
 router.get('/affiliate-codes', requireAuth, controller.listCodes);
 router.get('/whatsapp-links', requireAuth, controller.list);
 router.post('/whatsapp-links', requireAuth, controller.create);

@@ -12,8 +12,14 @@ let targetUser;
 let link;
 let conversion;
 let webhookLog;
+let affiliate;
+let campaign;
+let whatsappLink;
 
 async function cleanup() {
+  if (whatsappLink) {
+    await prisma.whatsAppLink.deleteMany({ where: { id: whatsappLink.id } });
+  }
   if (webhookLog) {
     await prisma.webhookLog.deleteMany({ where: { id: webhookLog.id } });
   }
@@ -22,6 +28,8 @@ async function cleanup() {
   }
   if (link) await prisma.link.deleteMany({ where: { id: link.id } });
   if (targetUser) await prisma.user.deleteMany({ where: { id: targetUser.id } });
+  if (campaign) await prisma.campaign.deleteMany({ where: { id: campaign.id } });
+  if (affiliate) await prisma.affiliate.deleteMany({ where: { id: affiliate.id } });
   if (guardUser) await prisma.user.deleteMany({ where: { id: guardUser.id } });
 }
 
@@ -47,6 +55,31 @@ async function run() {
       originalUrl: 'https://netbox.net.br/',
       shortCode: crypto.randomBytes(4).toString('hex'),
       userId: targetUser.id
+    }
+  });
+  affiliate = await prisma.affiliate.create({
+    data: {
+      name: 'Afiliado da simulacao',
+      email: `affiliate-${suffix}@netbox.local`
+    }
+  });
+  campaign = await prisma.campaign.create({
+    data: {
+      name: 'Campanha da exclusao',
+      destinationUrl: 'https://netbox.net.br/'
+    }
+  });
+  whatsappLink = await prisma.whatsAppLink.create({
+    data: {
+      name: 'WhatsApp que bloqueava a exclusao',
+      whatsappNumber: '63999999999',
+      originalMessage: 'Teste',
+      finalMessage: 'Teste',
+      whatsappUrl: 'https://wa.me/63999999999',
+      campaignId: campaign.id,
+      affiliateId: affiliate.id,
+      linkId: link.id,
+      createdById: targetUser.id
     }
   });
   conversion = await prisma.conversion.create({
@@ -88,9 +121,14 @@ async function run() {
 
   await userController.delete({ params: { id: String(targetUser.id) } }, response);
 
-  assert.equal(statusCode, 204, JSON.stringify(responseBody));
+  assert.equal(statusCode, 200, JSON.stringify(responseBody));
+  assert.equal(responseBody.deleted.user, 1);
   assert.equal(await prisma.user.findUnique({ where: { id: targetUser.id } }), null);
   assert.equal(await prisma.link.findUnique({ where: { id: link.id } }), null);
+  assert.equal(
+    await prisma.whatsAppLink.findUnique({ where: { id: whatsappLink.id } }),
+    null
+  );
   assert.equal(
     await prisma.conversion.findUnique({ where: { id: conversion.id } }),
     null
@@ -111,6 +149,7 @@ async function run() {
         usuarioApagado: true,
         linkApagado: true,
         conversaoApagada: true,
+        linkWhatsappApagado: true,
         webhookPreservado: true,
         referenciasInvalidasRemovidas: true
       },
