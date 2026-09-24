@@ -27,6 +27,10 @@ function createToken(user) {
 }
 
 class AuthController {
+  async me(req, res) {
+    return res.json(req.user);
+  }
+
   async login(req, res) {
     try {
       const email = String(req.body.email || '')
