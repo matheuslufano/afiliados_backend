@@ -20,6 +20,7 @@ const whatsappLinkRoutes = require('./routes/whatsappLinkRoutes');
 const contactRoutes = require('./routes/contactRoutes');
 const maintenanceRoutes = require('./routes/maintenanceRoutes');
 const clickRoutes = require('./routes/clickRoutes');
+const blogRoutes = require('./routes/blogRoutes');
 const { prismaStudioRoute } = require('./routes/prismaStudioRoute');
 
 const app = express();
@@ -48,6 +49,10 @@ app.use(whatsappLinkRoutes);
 app.use(contactRoutes);
 app.use(maintenanceRoutes);
 app.use(clickRoutes);
+app.use(blogRoutes);
+app.use(require('./routes/blogMediaRoutes'));
+app.use(require('./routes/blogAdminRoutes'));
+app.use(require('./routes/blogAnalyticsRoutes'));
 
 app.get('/', (req, res) => {
   res.send('API funcionando 🚀');

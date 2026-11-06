@@ -95,6 +95,8 @@ class WordPressController {
 
     if (button.tagName && button.tagName.toLowerCase() === "a") {
       button.setAttribute("href", href);
+      button.setAttribute("target", "_blank");
+      button.setAttribute("rel", "noopener noreferrer");
     }
   }
 
@@ -142,11 +144,9 @@ class WordPressController {
     var href = buildButtonHref();
     updateButton(button, href);
 
-    if (!(button.tagName && button.tagName.toLowerCase() === "a")) {
-      event.preventDefault();
-      window.location.href = href;
-    }
-  });
+    event.preventDefault();
+    window.open(href, "_blank", "noopener,noreferrer");
+  }, true);
 })();`);
   }
 }

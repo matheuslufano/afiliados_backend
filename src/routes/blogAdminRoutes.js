@@ -1,0 +1,17 @@
+const router = require('express').Router();
+const { requireAuth, requireManager } = require('../middleware/auth');
+const c = require('../controllers/blogAdminController');
+router.use('/admin/blog', requireAuth);
+router.get('/admin/blog/authors', c.authors);
+router.get('/admin/blog/articles', c.list);
+router.post('/admin/blog/articles', c.create);
+router.get('/admin/blog/articles/:id', c.detail);
+router.put('/admin/blog/articles/:id', c.update);
+router.post('/admin/blog/articles/:id/duplicate', requireManager, c.duplicate);
+router.delete('/admin/blog/articles/:id', requireManager, c.remove);
+router.post('/admin/blog/articles/:id/publication', requireManager, c.transition);
+router.get('/admin/blog/categories', c.categories);
+router.post('/admin/blog/categories', requireManager, c.saveCategory);
+router.put('/admin/blog/categories/:id', requireManager, c.saveCategory);
+router.delete('/admin/blog/categories/:id', requireManager, c.removeCategory);
+module.exports = router;

@@ -1,0 +1,150 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { randomUUID, createHmac } = require('node:crypto');
+const { validateArticle, validatePublication } = require('../src/services/blogValidation');
+const draft = { title: 'Artigo de teste', slug: 'artigo-de-teste', summary: 'Resumo', category: 'teste', cover: 'https://example.org/image.webp', coverAlt: 'Descrição', content: [{ heading: 'Introdução', paragraphs: ['Conteúdo exclusivo pesquisável'] }] };
+
+test('public author photo does not expose draft data or private user fields', () => {
+  const { publicVersion } = require('../src/controllers/blogController');
+  const publicSnapshot = { title: 'Título publicado', author: 'Autor publicado', content: ['Versão pública'] };
+  const result = publicVersion({ publicSnapshot, title: 'Rascunho privado', author: 'Autor publicado', authorUser: { photoUrl: 'https://example.org/author.jpg', email: 'private@example.org' } });
+  assert.deepEqual(result, { ...publicSnapshot, authorPhotoUrl: 'https://example.org/author.jpg' });
+  assert.equal(publicSnapshot.authorPhotoUrl, undefined);
+  assert.deepEqual(publicVersion({ publicSnapshot, authorUser: null }), publicSnapshot);
+  assert.deepEqual(publicVersion({ publicSnapshot, author: 'Outro autor', authorUser: { photoUrl: 'https://example.org/draft.jpg' } }), publicSnapshot);
+  const frozen = { ...publicSnapshot, authorPhotoUrl: 'https://example.org/published.jpg' };
+  assert.deepEqual(publicVersion({ publicSnapshot: frozen, author: 'Outro autor', authorUser: { photoUrl: 'https://example.org/draft.jpg' } }), frozen);
+});
+test('validation rejects executable URLs, invalid blocks and incomplete publications', () => {
+  assert.throws(() => validateArticle({ ...draft, cover: 'javascript:alert(1)' }));
+  assert.throws(() => validateArticle({ ...draft, content: [{ paragraphs: 'text' }] }));
+  assert.throws(() => validatePublication({ ...draft, coverAlt: '' }));
+  assert.equal(validateArticle(draft).slug, draft.slug);
+});
+
+test('PostgreSQL: authenticated CRUD, publication snapshots, conflicts, filters and unpublish', { skip: process.env.BLOG_TEST_DATABASE !== '1' }, async () => {
+  require('dotenv').config({ quiet: true });
+  const { mkdtemp, unlink, rmdir } = require('node:fs/promises');
+  const { tmpdir } = require('node:os');
+  const { join } = require('node:path');
+  const previousMediaDir = process.env.BLOG_MEDIA_DIR;
+  const mediaDir = await mkdtemp(join(tmpdir(), 'netbox-blog-upload-test-'));
+  process.env.BLOG_MEDIA_DIR = mediaDir;
+  let uploadedName;
+  const otherArticleIds = [];
+  const prisma = require('../src/database/prisma');
+  const express = require('express');
+  const app = express(); app.use(express.json());
+  app.use(require('../src/routes/blogMediaRoutes')); app.use(require('../src/routes/blogAdminRoutes')); app.use(require('../src/routes/blogRoutes'));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const key = randomUUID(); const articleId = randomUUID(); let user; let viewer; let category;
+  function token(id) { const payload = Buffer.from(JSON.stringify({ id })).toString('base64url'); return payload + '.' + createHmac('sha256', process.env.JWT_SECRET || 'minha_chave_super_secreta').update(payload).digest('base64url'); }
+  async function request(path, method = 'GET', data, auth = user && token(user.id)) {
+    const response = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth}` } : {}) }, ...(data ? { body: JSON.stringify(data) } : {}) });
+    return { status: response.status, data: response.status === 204 ? null : await response.json() };
+  }
+  try {
+    user = await prisma.user.create({ data: { name: 'Blog integration test', email: `${key}@example.invalid`, password: randomUUID(), role: 'MANAGER', photoUrl: 'https://example.org/blog-author.jpg' } });
+    viewer = await prisma.user.create({ data: { name: 'Blog access test', email: `viewer-${key}@example.invalid`, password: randomUUID(), role: 'USER' } });
+    assert.equal((await request('/admin/blog/articles', 'GET', null, '')).status, 401);
+    assert.equal((await request('/admin/blog/articles', 'GET', null, token(viewer.id))).status, 200);
+    assert.equal((await request('/admin/blog/media', 'POST', null, '')).status, 401);
+    assert.equal((await request('/admin/blog/authors', 'GET', null, token(viewer.id))).status, 200);
+    assert.equal((await request('/admin/blog/categories', 'POST', { name: 'Forbidden', slug: 'forbidden' }, token(viewer.id))).status, 403);
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jp1sAAAAASUVORK5CYII=', 'base64');
+    const uploaded = await fetch(base + '/admin/blog/media', { method: 'POST', headers: { Authorization: `Bearer ${token(user.id)}`, 'Content-Type': 'image/png' }, body: png });
+    assert.equal(uploaded.status, 201);
+    const asset = await uploaded.json();
+    uploadedName = asset.url.split('/').pop();
+    const download = await fetch(asset.url);
+    assert.equal(download.status, 200);
+    assert.equal(download.headers.get('x-content-type-options'), 'nosniff');
+    assert.deepEqual(Buffer.from(await download.arrayBuffer()), png);
+    category = (await request('/admin/blog/categories', 'POST', { name: key, slug: key })).data;
+    const body = { ...draft, id: articleId, slug: key, category: key, cover: asset.url, spotlight: { title: 'Título da obra', poster: '/blog/original-poster.webp', posterAlt: 'Capa original da obra', trailerUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }, content: [{ heading: '', paragraphs: [], document: [{ type: 'paragraph', content: [{ text: 'Conteúdo exclusivo pesquisável', bold: true, font: 'serif' }] }, { type: 'image', src: asset.url, alt: 'Imagem de teste', width: 60, align: 'left' }, { type: 'video', width: 45, align: 'right', src: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ' }] }] };
+    let result = await request('/admin/blog/articles', 'POST', body); assert.equal(result.status, 201);
+    assert.equal((await request('/admin/blog/articles', 'POST', body)).data.id, articleId);
+    assert.equal((await request('/admin/blog/articles', 'POST', { ...body, id: randomUUID() })).status, 409);
+    assert.equal((await request(`/blog/articles/${key}`)).status, 404);
+    let article = (await request(`/admin/blog/articles/${articleId}`)).data;
+    await prisma.blogArticleSource.create({ data: { articleId, title: 'Fonte de teste', publisher: 'Editorial', url: 'https://example.org/source', role: 'reference', position: 0 } });
+    result = await request(`/admin/blog/articles/${articleId}/publication`, 'POST', { action: 'publish', revision: article.revision }); assert.equal(result.status, 200); article = result.data;
+    assert.equal((await request(`/blog/articles/${key}`)).data.title, draft.title);
+    const publicAuthor = (await request(`/blog/articles/${key}`)).data;
+    assert.equal(publicAuthor.authorPhotoUrl, user.photoUrl);
+    assert.equal(publicAuthor.authorUser, undefined);
+    assert.equal(article.authorUser.photoUrl, user.photoUrl);
+    assert.equal((await request(`/blog/articles/${key}`)).data.content[0].document[0].content[0].bold, true);
+    assert.deepEqual(article.spotlight, body.spotlight);
+    assert.equal(article.content[0].document[1].width, 60);
+    assert.equal(article.content[0].document[2].align, 'right');
+    assert.deepEqual((await request(`/blog/articles/${key}`)).data.spotlight, body.spotlight);
+    // Quick actions use the same permissions and revision contract as the editor.
+    assert.equal((await request(`/admin/blog/articles/${articleId}/duplicate`, 'POST', { id: randomUUID(), revision: article.revision }, token(viewer.id))).status, 403);
+    assert.equal((await request(`/admin/blog/articles/${articleId}`, 'DELETE', { revision: article.revision }, token(viewer.id))).status, 403);
+    assert.equal((await request(`/admin/blog/articles/${articleId}/duplicate`, 'POST', { id: randomUUID(), revision: article.revision + 100 })).status, 409);
+    const copyId = randomUUID(); otherArticleIds.push(copyId);
+    result = await request(`/admin/blog/articles/${articleId}/duplicate`, 'POST', { id: copyId, revision: article.revision });
+    assert.equal(result.status, 201);
+    let copy = result.data;
+    assert.equal(copy.status, 'draft'); assert.equal(copy.publicSnapshot, null); assert.equal(copy.publishedRevision, null);
+    assert.equal(copy.authorId, user.id); assert.notEqual(copy.slug, article.slug);
+    assert.deepEqual(copy.content, article.content); assert.deepEqual(copy.spotlight, article.spotlight);
+    assert.equal(copy.sources[0].url, 'https://example.org/source');
+    assert.equal((await request(`/blog/articles/${copy.slug}`)).status, 404);
+    assert.equal((await request(`/admin/blog/articles/${articleId}/duplicate`, 'POST', { id: copyId, revision: article.revision })).data.id, copyId);
+    copy = (await request(`/admin/blog/articles/${copyId}/publication`, 'POST', { action: 'publish', revision: copy.revision })).data;
+    assert.equal((await request(`/blog/articles/${copy.slug}`)).status, 200);
+    assert.equal((await request(`/admin/blog/articles/${copyId}`, 'DELETE', { revision: copy.revision - 1 })).status, 409);
+    assert.equal((await request(`/admin/blog/articles/${copyId}`, 'DELETE', { revision: copy.revision })).status, 204);
+    assert.equal((await request(`/blog/articles/${copy.slug}`)).status, 404);
+    assert.equal((await fetch(asset.url)).status, 200);
+    const pageIds = Array.from({ length: 25 }, () => randomUUID()); otherArticleIds.push(...pageIds);
+    await prisma.blogArticle.createMany({ data: pageIds.map((id, index) => ({ id, title: `Page fixture ${index}`, slug: `${key}-page-${index}`, summary: 'Fixture', category: key, cover: asset.url, coverAlt: 'Imagem', author: user.name, authorId: user.id, status: 'draft', publishedAt: new Date(), updatedAt: new Date(), content: [], seo: {}, searchText: 'fixture' })) });
+    for (const size of [12,24,48]) {
+      const page = await request(`/admin/blog/articles?category=${key}&pageSize=${size}`);
+      assert.equal(page.data.pageSize, size); assert.equal(page.data.total, 26);
+      assert.equal(page.data.items.length, Math.min(size, 26)); assert.equal(page.data.pages, Math.ceil(26 / size));
+    }
+    const filteredPage = (await request(`/admin/blog/articles?category=${key}&q=fixture&status=draft&sort=createdAt&pageSize=24&page=2`)).data;
+    assert.equal(filteredPage.total, 25); assert.equal(filteredPage.items.length, 1);
+    assert.equal((await request(`/admin/blog/articles?category=${key}&pageSize=13`)).data.pageSize, 12);
+    const [paragraph, image, video] = article.content[0].document;
+    const reordered = [{ ...article.content[0], document: [paragraph, video, { ...image, width: 80, align: 'center' }] }];
+    result = await request(`/admin/blog/articles/${articleId}`, 'PUT', { ...article, content: reordered, title: 'Alteração ainda privada', spotlight: { ...article.spotlight, poster: '/blog/replacement-poster.webp' } }); assert.equal(result.status, 200);
+    assert.equal((await request(`/blog/articles/${key}`)).data.title, draft.title);
+    assert.equal((await request(`/blog/articles/${key}`)).data.spotlight.poster, body.spotlight.poster);
+    assert.equal((await request(`/admin/blog/articles/${articleId}`, 'PUT', article)).status, 409);
+    assert.equal((await request(`/blog/articles/${key}`)).data.content[0].document[1].type, 'image');
+    article = result.data;
+    result = await request(`/admin/blog/articles/${articleId}/publication`, 'POST', { action: 'publish', revision: article.revision }); article = result.data;
+    assert.equal((await request(`/blog/articles/${key}`)).data.title, 'Alteração ainda privada');
+    assert.equal((await request(`/blog/articles/${key}`)).data.spotlight.poster, '/blog/replacement-poster.webp');
+    assert.equal((await request(`/blog/articles/${key}`)).data.cover, asset.url);
+    const publishedMedia = (await request(`/blog/articles/${key}`)).data.content[0].document;
+    assert.deepEqual(publishedMedia.map(block => block.type), ['paragraph', 'video', 'image']);
+    assert.equal(publishedMedia[2].width, 80);
+    assert.equal(publishedMedia[2].align, 'center');
+    assert.equal((await request(`/blog/articles/${key}`)).data.spotlight.trailerUrl, body.spotlight.trailerUrl);
+    const list = await request(`/admin/blog/articles?q=pesquisável&category=${key}&status=published`);
+    assert.equal(list.data.total, 1); assert.equal(list.data.items[0].id, articleId);
+    result = await request(`/admin/blog/articles/${articleId}/publication`, 'POST', { action: 'unpublish', revision: article.revision }); assert.equal(result.status, 200);
+    assert.equal((await request(`/blog/articles/${key}`)).status, 404);
+    article = result.data;
+    result = await request(`/admin/blog/articles/${articleId}`, 'PUT', { ...article, coverAlt: '' }); article = result.data;
+    assert.equal((await request(`/admin/blog/articles/${articleId}/publication`, 'POST', { action: 'publish', revision: article.revision })).status, 400);
+    const preserved = (await request(`/admin/blog/articles/${articleId}`)).data;
+    assert.equal(preserved.title, 'Alteração ainda privada'); assert.ok(preserved.syncError);
+  } finally {
+    await prisma.blogArticle.deleteMany({ where: { id: { in: [articleId, ...otherArticleIds] } } });
+    if (category?.id) await prisma.blogCategory.delete({ where: { id: category.id } });
+    if (user) await prisma.user.delete({ where: { id: user.id } });
+    if (viewer) await prisma.user.delete({ where: { id: viewer.id } });
+    await new Promise(resolve => server.close(resolve)); await prisma.$disconnect();
+    if (uploadedName) await unlink(join(mediaDir, uploadedName));
+    await rmdir(mediaDir);
+    if (previousMediaDir === undefined) delete process.env.BLOG_MEDIA_DIR; else process.env.BLOG_MEDIA_DIR = previousMediaDir;
+  }
+});

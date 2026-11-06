@@ -32,6 +32,7 @@ model User {
   contactInteractions  ContactInteraction[]
   assignedAppointments ContactAppointment[] @relation("AppointmentAssignee")
   affiliate            Affiliate?
+  blogArticles         BlogArticle[]
 
   @@index([teamId, active])
 }
@@ -517,4 +518,98 @@ model AffiliateCommission {
 
   @@unique([affiliateId, dealId])
   @@index([dealId])
+}
+
+/// Editorial content consumed by the public Netbox Blog.
+model BlogArticle {
+  id          String   @id
+  slug        String   @unique
+  title       String
+  summary     String
+  topic       String?
+  category    String
+  cover       String
+  coverAlt    String
+  coverCredit String?
+  author      String
+  publishedAt DateTime
+  updatedAt   DateTime
+  status      String   @default("draft")
+  featured    Boolean  @default(false)
+  content     Json
+  seo         Json
+  spotlight   Json?
+  createdAt   DateTime @default(now())
+  syncedAt    DateTime?
+  revision    Int      @default(1)
+  publishedRevision Int?
+  publicSnapshot Json?
+  searchText String @default("")
+  authorId Int?
+  authorUser User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  syncError String?
+  syncAttemptedAt DateTime?
+  categoryRecord BlogCategory @relation(fields: [category], references: [slug], onUpdate: Cascade, onDelete: Restrict)
+
+  sources BlogArticleSource[]
+
+  @@index([status, publishedAt])
+  @@index([category, publishedAt])
+}
+
+/// Downloaded editorial images remain available independently of the external CDN.
+model BlogMediaAsset {
+  id String @id @default(uuid())
+  name String
+  mime String
+  bytes Bytes
+  source String
+  createdAt DateTime @default(now())
+}
+
+/// Consent-based, pseudonymous editorial events. No IP, user agent or personal profile is persisted.
+/// Article metadata is a public snapshot; history survives editorial deletion.
+model BlogAnalyticsEvent {
+  id String @id
+  kind String
+  articleId String
+  articleTitle String
+  articleSlug String
+  articleCover String
+  category String
+  visitorHash String
+  sessionHash String
+  fromArticleId String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt, kind])
+  @@index([articleId, createdAt])
+  @@index([visitorHash, createdAt])
+  @@index([sessionHash, createdAt])
+  @@index([fromArticleId, createdAt])
+}
+
+model BlogCategory {
+  id Int @id @default(autoincrement())
+  name String @unique
+  slug String @unique
+  description String @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  articles BlogArticle[]
+}
+
+/// Sources remain relational so credits and reference roles can be managed independently.
+model BlogArticleSource {
+  id        Int    @id @default(autoincrement())
+  title     String
+  url       String
+  publisher String
+  role      String @default("reference")
+  position  Int    @default(0)
+
+  articleId String
+  article   BlogArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([articleId, position])
 }
