@@ -1,5 +1,7 @@
 Criar estrutura de pastas
 
+Temas comemorativos: configurações independentes do Blog e do institucional, persistidas em `SiteThemeSetting`. Requer a migração `20261109180000_site_seasonal_themes`. Rotas, permissões, prévia, testes e relatório de arquivos em [docs/site-seasonal-themes.md](docs/site-seasonal-themes.md).
+
 Analytics do Blog: coleta consentida, relatórios ADMIN/MANAGER e retenção de 365 dias. Requer a migração `20261105160000_blog_analytics`. Veja [configuração, eventos e métricas](docs/blog-analytics.md).
 
 O painel do Blog oferece ações rápidas reais: duplicação em rascunho e exclusão com revisão, além de paginação 12/24/48. Rotas e contratos em [docs/blog-management.md](docs/blog-management.md#a%C3%A7%C3%B5es-r%C3%A1pidas-e-pagina%C3%A7%C3%A3o-administrativa). Não requer migração.

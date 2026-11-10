@@ -521,6 +521,15 @@ model AffiliateCommission {
 }
 
 /// Editorial content consumed by the public Netbox Blog.
+/// Manually enabled seasonal decoration, independently configured for each public surface.
+model SiteThemeSetting {
+  scope     String   @id
+  themeId   String   @default("christmas")
+  enabled   Boolean  @default(false)
+  revision  Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
 model BlogArticle {
   id          String   @id
   slug        String   @unique

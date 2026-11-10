@@ -1,0 +1,343 @@
+{
+  "arcane-animacao-lore-e-conflito": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=fXmAurh012s",
+        "alt": "Arcane | Official Trailer | Netflix — material promocional, Netflix.",
+        "title": "Arcane | Official Trailer | Netflix",
+        "publisher": "Netflix"
+      }
+    ]
+  },
+  "one-piece-live-action-porta-de-entrada": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=Ades3pQbeh8",
+        "alt": "ONE PIECE | Official Trailer | Netflix — material promocional, Netflix.",
+        "title": "ONE PIECE | Official Trailer | Netflix",
+        "publisher": "Netflix"
+      }
+    ]
+  },
+  "stranger-things-guia-sem-spoilers": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=b9EkMc79ZSU",
+        "alt": "Stranger Things | Official Final Trailer | Netflix — material promocional, Netflix.",
+        "title": "Stranger Things | Official Final Trailer | Netflix",
+        "publisher": "Netflix"
+      }
+    ]
+  },
+  "wandinha-misterio-humor-e-estilo": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=Di310WS8zLk",
+        "alt": "Wednesday Addams | Official Teaser | Netflix — material promocional, Netflix.",
+        "title": "Wednesday Addams | Official Teaser | Netflix",
+        "publisher": "Netflix"
+      }
+    ]
+  },
+  "the-last-of-us-jogo-e-adaptacao": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=uLtkt8BonwM",
+        "alt": "The Last of Us | Official Trailer | Max — material promocional, HBO Max.",
+        "title": "The Last of Us | Official Trailer | Max",
+        "publisher": "HBO Max"
+      }
+    ]
+  },
+  "watchmen-como-comecar-classico": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=j-s-cxTnH2Q",
+        "alt": "Trailer da adaptação animada Watchmen Chapter 1; contém violência e possíveis spoilers. A análise acima é da HQ.",
+        "title": "Watchmen Chapter 1 | Red Band Trailer 4K | Warner Bros. Entertainment",
+        "publisher": "Warner Bros. Entertainment"
+      }
+    ]
+  },
+  "v-de-vinganca-hq-e-distopia": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=V5VGq23aZ-g",
+        "alt": "Trailer da adaptação cinematográfica V de Vingança; a análise acima é da HQ.",
+        "title": "V for Vendetta | 4K Trailer | Warner Bros. Entertainment",
+        "publisher": "Warner Bros. Entertainment"
+      }
+    ]
+  },
+  "sandman-preludios-e-noturnos": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=Er18gmgqy2k",
+        "alt": "Trailer da segunda temporada da adaptação de Sandman; contém possíveis spoilers e não corresponde apenas ao primeiro volume.",
+        "title": "The Sandman: Season 2 | Official Trailer | Netflix",
+        "publisher": "Netflix"
+      }
+    ]
+  },
+  "batman-ano-um-porta-de-entrada": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=s86sUsWRx0Q",
+        "alt": "Trailer da adaptação animada Batman: Ano Um; a análise acima é da HQ.",
+        "title": "Batman: Year One - Trailer",
+        "publisher": "Warner Bros. Rewind"
+      }
+    ]
+  },
+  "all-star-superman-uma-historia-fechada": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=X5xvlXV9crE",
+        "alt": "Curta comemorativo dos 80 anos de Superman — DC Kids. Material complementar sobre o personagem; não é uma adaptação de All-Star Superman.",
+        "title": "Superman 80th Anniversary Animated Short | @dckids",
+        "publisher": "DC Kids"
+      }
+    ]
+  },
+  "hades-como-aprender-cada-tentativa": {
+    "images": [
+      {
+        "src": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1145360/ss_c0fed447426b69981cf1721756acf75369801b31.1920x1080.jpg?t=1758127023",
+        "alt": "Hades — captura oficial 1 da página da Steam. Crédito: Supergiant Games.",
+        "source": "https://store.steampowered.com/app/1145360/"
+      },
+      {
+        "src": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1145360/ss_8a9f0953e8a014bd3df2789c2835cb787cd3764d.1920x1080.jpg?t=1758127023",
+        "alt": "Hades — captura oficial 2 da página da Steam. Crédito: Supergiant Games.",
+        "source": "https://store.steampowered.com/app/1145360/"
+      }
+    ],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=Bz8l935Bv0Y",
+        "alt": "Trailer de lançamento de Hades — Supergiant Games",
+        "title": "Hades - v1.0 Launch Trailer",
+        "publisher": "Supergiant Games"
+      }
+    ]
+  },
+  "hollow-knight-explorar-hallownest": {
+    "images": [
+      {
+        "src": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/367520/ss_5384f9f8b96a0b9934b2bc35a4058376211636d2.1920x1080.jpg?t=1776125684",
+        "alt": "Hollow Knight — captura oficial 1 da página da Steam. Crédito: Team Cherry.",
+        "source": "https://store.steampowered.com/app/367520/"
+      },
+      {
+        "src": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/367520/ss_d5b6edd94e77ba6db31c44d8a3c09d807ab27751.1920x1080.jpg?t=1776125684",
+        "alt": "Hollow Knight — captura oficial 2 da página da Steam. Crédito: Team Cherry.",
+        "source": "https://store.steampowered.com/app/367520/"
+      }
+    ],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=UAO2urG23S4",
+        "alt": "Trailer de lançamento de Hollow Knight — Team Cherry",
+        "title": "Hollow Knight - Release Trailer",
+        "publisher": "Team Cherry"
+      }
+    ]
+  },
+  "stardew-valley-primeiros-dias": {
+    "images": [
+      {
+        "src": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/413150/ss_b887651a93b0525739049eb4194f633de2df75be.1920x1080.jpg?t=1786554168",
+        "alt": "Stardew Valley — captura oficial 1 da página da Steam. Crédito: ConcernedApe.",
+        "source": "https://store.steampowered.com/app/413150/"
+      },
+      {
+        "src": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/413150/ss_9ac899fe2cda15d48b0549bba77ef8c4a090a71c.1920x1080.jpg?t=1786554168",
+        "alt": "Stardew Valley — captura oficial 2 da página da Steam. Crédito: ConcernedApe.",
+        "source": "https://store.steampowered.com/app/413150/"
+      }
+    ],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=ot7uXNQskhs",
+        "alt": "Trailer de Stardew Valley — ConcernedApe.",
+        "title": "Stardew Valley Trailer",
+        "publisher": "ConcernedApe"
+      }
+    ]
+  },
+  "terraria-primeira-base-e-exploracao": {
+    "images": [
+      {
+        "src": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/105600/ss_8c03886f214d2108cafca13845533eaa3d87d83f.1920x1080.jpg?t=1792530636",
+        "alt": "Terraria — captura oficial 1 da página da Steam. Crédito: Re-Logic.",
+        "source": "https://store.steampowered.com/app/105600/"
+      },
+      {
+        "src": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/105600/ss_ae168a00ab08104ba266dc30232654d4b3c919e5.1920x1080.jpg?t=1792530636",
+        "alt": "Terraria — captura oficial 2 da página da Steam. Crédito: Re-Logic.",
+        "source": "https://store.steampowered.com/app/105600/"
+      }
+    ],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=w7uOhFTrrq0",
+        "alt": "Trailer original de Terraria — Re-Logic",
+        "title": "Terraria Official Trailer",
+        "publisher": "Re-Logic"
+      }
+    ]
+  },
+  "portal-2-puzzles-cooperativo": {
+    "images": [
+      {
+        "src": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/620/ss_f3f6787d74739d3b2ec8a484b5c994b3d31ef325.1920x1080.jpg?t=1790187113",
+        "alt": "Portal 2 — captura oficial 1 da página da Steam. Crédito: Valve.",
+        "source": "https://store.steampowered.com/app/620/"
+      },
+      {
+        "src": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/620/ss_6a4f5afdaa98402de9cf0b59fed27bab3256a6f4.1920x1080.jpg?t=1790187113",
+        "alt": "Portal 2 — captura oficial 2 da página da Steam. Crédito: Valve.",
+        "source": "https://store.steampowered.com/app/620/"
+      }
+    ],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=A88YiZdXugA",
+        "alt": "Trailer cooperativo de Portal 2 — Valve.",
+        "title": "Portal 2 - Full Co-op Trailer",
+        "publisher": "Valve"
+      }
+    ]
+  },
+  "a-odisseia-christopher-nolan": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=Mzw2ttJD2qQ",
+        "alt": "The Odyssey | Official Trailer — material promocional, Universal Pictures.",
+        "title": "The Odyssey | Official Trailer",
+        "publisher": "Universal Pictures"
+      }
+    ]
+  },
+  "homem-aranha-um-novo-dia": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=8TZMtslA3UY",
+        "alt": "SPIDER-MAN: BRAND NEW DAY – Official Trailer (HD) — material promocional, Spider-Man.",
+        "title": "SPIDER-MAN: BRAND NEW DAY – Official Trailer (HD)",
+        "publisher": "Spider-Man"
+      }
+    ]
+  },
+  "toy-story-5-woody-e-buzz": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=c51ND9Hdbw0",
+        "alt": "Toy Story 5 | Official Trailer | In Theaters June 19 — material promocional, Pixar.",
+        "title": "Toy Story 5 | Official Trailer | In Theaters June 19",
+        "publisher": "Pixar"
+      }
+    ]
+  },
+  "michael-cinebiografia-rei-do-pop": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=mbtgEE6rkxw",
+        "alt": "Michael (2026) Official Trailer - Jaafar Jackson — material promocional, Lionsgate Movies.",
+        "title": "Michael (2026) Official Trailer - Jaafar Jackson",
+        "publisher": "Lionsgate Movies"
+      }
+    ]
+  },
+  "super-mario-galaxy-o-filme": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=FdL2GorGdKc",
+        "alt": "The Super Mario Galaxy Movie | Official Trailer — material promocional, Illumination.",
+        "title": "The Super Mario Galaxy Movie | Official Trailer",
+        "publisher": "Illumination"
+      }
+    ]
+  },
+  "o-diabo-veste-prada-2": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=e9HXmMnUEdE",
+        "alt": "The Devil Wears Prada 2 | Official Trailer — material promocional, 20th Century Studios.",
+        "title": "The Devil Wears Prada 2 | Official Trailer",
+        "publisher": "20th Century Studios"
+      }
+    ]
+  },
+  "devoradores-de-estrelas": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=m08TxIsFTRI",
+        "alt": "Project Hail Mary - Official Trailer — material promocional, Amazon MGM Studios.",
+        "title": "Project Hail Mary - Official Trailer",
+        "publisher": "Amazon MGM Studios"
+      }
+    ]
+  },
+  "minions-e-monstros": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=ZSdOwt-G49w",
+        "alt": "Minions & Monsters | Official Trailer — material promocional, Illumination.",
+        "title": "Minions & Monsters | Official Trailer",
+        "publisher": "Illumination"
+      }
+    ]
+  },
+  "obsessao-suspense": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=TaaDkbG3I7g",
+        "alt": "OBSESSION - Official Trailer [HD] - Only In Theaters May 15 — material promocional, Focus Features.",
+        "title": "OBSESSION - Official Trailer [HD] - Only In Theaters May 15",
+        "publisher": "Focus Features"
+      }
+    ]
+  },
+  "backrooms-um-nao-lugar": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=0HjdiohVOik",
+        "alt": "Backrooms | Official Trailer HD | A24 — material promocional, A24.",
+        "title": "Backrooms | Official Trailer HD | A24",
+        "publisher": "A24"
+      }
+    ]
+  },
+  "06e98ead-0b4b-4a98-b26e-9e378fc53154": {
+    "images": [],
+    "videos": [
+      {
+        "src": "https://www.youtube.com/watch?v=jw0RGzr8ULA",
+        "alt": "Trailer de Pillion indicado no site oficial da A24; conteúdo adulto.",
+        "title": "Pillion",
+        "publisher": "YouTube Movies"
+      }
+    ]
+  }
+}
