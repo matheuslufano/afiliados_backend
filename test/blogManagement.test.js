@@ -22,6 +22,25 @@ test('validation rejects executable URLs, invalid blocks and incomplete publicat
   assert.equal(validateArticle(draft).slug, draft.slug);
 });
 
+test('image updates preserve internal links in seeded articles and rich documents', () => {
+  const articles = require('../prisma/data/blog-articles.json');
+  for (const article of articles) {
+    const updated = validateArticle({ ...article, cover: 'https://example.org/replacement.webp' });
+    assert.equal(updated.cover, 'https://example.org/replacement.webp');
+    article.content.forEach((section, index) => {
+      if (section.link) assert.deepEqual(updated.content[index].link, section.link);
+    });
+  }
+  for (const href of ['/site/blog/wifi-5-e-wifi-6', '/site#planos-netbox', '/site/blog?categoria=hqs']) {
+    const content = [{ heading: '', paragraphs: [], document: [{ type: 'paragraph', content: [{ text: 'Leia mais', href }] }] }];
+    assert.equal(validateArticle({ ...draft, content }).content[0].document[0].content[0].href, href);
+  }
+  for (const href of ['javascript:alert(1)', 'data:text/html,test', '//example.org', '/\\example.org', '/bad path']) {
+    assert.throws(() => validateArticle({ ...draft, content: [{ heading: '', paragraphs: [], link: { label: 'Link', href } }] }));
+    assert.throws(() => validateArticle({ ...draft, content: [{ heading: '', paragraphs: [], document: [{ type: 'paragraph', content: [{ text: 'Link', href }] }] }] }));
+  }
+});
+
 test('PostgreSQL: authenticated CRUD, publication snapshots, conflicts, filters and unpublish', { skip: process.env.BLOG_TEST_DATABASE !== '1' }, async () => {
   require('dotenv').config({ quiet: true });
   const { mkdtemp, unlink, rmdir } = require('node:fs/promises');

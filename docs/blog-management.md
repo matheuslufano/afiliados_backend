@@ -1,5 +1,9 @@
 # Administração do Blog
 
+## Validação de links internos
+
+Links de seções legadas e de trechos do documento aceitam caminhos iniciados por uma única barra, com query e fragmento. Isso permite editar as imagens dos artigos importados sem rejeitar seus links internos. HTTP(S) continua permitido; esquemas executáveis, barras invertidas, espaços em caminhos relativos e URLs iniciadas por `//` são rejeitados. Trailer e vídeo continuam exigindo URLs absolutas. Regressão: `node --test test/blogManagement.test.js test/blogRichContent.test.js`.
+
 ## Ações rápidas e paginação administrativa
 
 `GET /admin/blog/articles` aceita `pageSize` 12, 24 ou 48 e devolve `pageSize`, `items`, `total`, `page` e `pages`; valor ausente/inválido usa 12. Busca, categoria, status e ordenação permanecem no servidor. Métricas continuam globais.

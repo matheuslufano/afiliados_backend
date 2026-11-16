@@ -27,7 +27,7 @@ function validateDocument(value, { fail, text, safeUrl }) {
     const content = block.content.map(run => {
       if (!run || typeof run.text !== 'string' || run.text.length > 20000) fail('Trecho de texto inválido.');
       // Whitespace is meaningful inside formatted runs (e.g. between a link and plain text).
-      return { text: run.text, ...(run.bold === true ? { bold: true } : {}), ...(run.italic === true ? { italic: true } : {}), ...(run.underline === true ? { underline: true } : {}), ...(run.href ? { href: safeUrl(text(run.href, 2000)) } : {}), ...(['sans', 'serif', 'mono'].includes(run.font) ? { font: run.font } : {}), ...(['small', 'normal', 'large'].includes(run.size) ? { size: run.size } : {}) };
+      return { text: run.text, ...(run.bold === true ? { bold: true } : {}), ...(run.italic === true ? { italic: true } : {}), ...(run.underline === true ? { underline: true } : {}), ...(run.href ? { href: safeUrl(text(run.href, 2000), true) } : {}), ...(['sans', 'serif', 'mono'].includes(run.font) ? { font: run.font } : {}), ...(['small', 'normal', 'large'].includes(run.size) ? { size: run.size } : {}) };
     });
     return { type: block.type, ...(block.type === 'heading' ? { level: block.level === 3 ? 3 : 2 } : {}), ...(['left', 'center', 'right'].includes(block.align) ? { align: block.align } : {}), content };
   });

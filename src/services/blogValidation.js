@@ -5,9 +5,9 @@ function text(value, max = 500, required = false) {
   if (typeof value !== 'string' || value.length > max || (required && !value.trim())) fail('Texto obrigatório, inválido ou muito longo.');
   return value.trim();
 }
-function safeUrl(value, image = false) {
+function safeUrl(value, allowRelative = false) {
   if (!value) return '';
-  if (image && /^\/(?!\/)[^\s\\]*$/.test(value)) return value;
+  if (allowRelative && /^\/(?!\/)[^\s\\]*$/.test(value)) return value;
   try { const url = new URL(value); if (url.protocol === 'https:' || url.protocol === 'http:') return url.href; } catch {}
   fail('Informe uma URL HTTP(S) válida.');
 }
@@ -39,7 +39,7 @@ function validateArticle(body) {
       if (!Array.isArray(section.list) || section.list.length > 100) fail('Lista inválida.');
       result.list = section.list.map(p => text(p, 2000));
     }
-    if (section.link?.href) result.link = { label: text(section.link.label, 300, true), href: safeUrl(section.link.href) };
+    if (section.link?.href) result.link = { label: text(section.link.label, 300, true), href: safeUrl(text(section.link.href, 2000), true) };
     if (section.image?.src) result.image = { src: safeUrl(section.image.src, true), alt: text(section.image.alt, 500, true) };
     return result;
   });
