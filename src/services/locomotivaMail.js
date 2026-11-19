@@ -1,6 +1,23 @@
 const { prisma, audit } = require("./locomotivaRepository");
 const nodemailer = require("nodemailer");
+const { formattedEmail } = require("./locomotivaMailTemplates");
 let running = false;
+function transport() {
+  return nodemailer.createTransport({
+    url: process.env.LOCOMOTIVA_SMTP_URL,
+    connectionTimeout: 10000,
+    socketTimeout: 20000,
+    disableFileAccess: true,
+    disableUrlAccess: true,
+  });
+}
+function verifyConnection() {
+  return transport().verify();
+}
+async function sendTest({ recipient, subject, text }) {
+  const result = await transport().sendMail({ from: process.env.LOCOMOTIVA_MAIL_FROM, to: { name: "", address: recipient }, subject: `[Teste] ${subject}`, text, html: formattedEmail(subject, text) });
+  return Boolean(result.accepted?.length);
+}
 /** Durable outbox: registration commits before any external mail operation. */
 async function drain() {
   if (running) return;
@@ -22,16 +39,10 @@ async function drain() {
           !process.env.LOCOMOTIVA_MAIL_FROM
         )
           throw new Error("NOT_CONFIGURED");
-        const transport = nodemailer.createTransport({
-          url: process.env.LOCOMOTIVA_SMTP_URL,
-          connectionTimeout: 10000,
-          socketTimeout: 20000,
-          disableFileAccess: true,
-          disableUrlAccess: true,
-        });
-        const result = await transport.sendMail({
+        const result = await transport().sendMail({
           from: process.env.LOCOMOTIVA_MAIL_FROM,
           ...row.payload,
+          html: formattedEmail(row.payload.subject, row.payload.text),
           messageId: `<${row.id}@locomotiva.campaign>`,
         });
         if (!result.accepted?.length) throw new Error("NOT_ACCEPTED");
@@ -64,4 +75,4 @@ function start() {
   }, 30000);
   timer.unref();
 }
-module.exports = { drain, start };
+module.exports = { drain, start, verifyConnection, sendTest };

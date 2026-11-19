@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { defaults: mailDefaults, variables: mailVariables } = require("./locomotivaMailTemplates");
 
 const DATES = Array.from({ length: 10 }, (_, i) => `2026-11-${21 + i}`);
 const ACTIVE = ["PENDING", "CONFIRMED", "ATTENDED", "ABSENT"];
@@ -179,8 +180,35 @@ function missing(config) {
     .concat(config.lunch.length + config.dinner.length ? [] : ["arrivalTimes"])
     .concat(config.dates.length ? [] : ["dates"]);
 }
+function mailTemplate(event, subject, body) {
+  if (!Object.hasOwn(mailDefaults, event)) fail("Selecione um modelo de e-mail válido.");
+  const template = {
+    [`messageSubject${event}`]: typeof subject === "string" ? subject.trim().slice(0, 160).replace(/[\r\n]+/g, " ") : "",
+    [`message${event}`]: typeof body === "string" ? body.trim().slice(0, 4000) : "",
+  };
+  for (const value of Object.values(template)) {
+    for (const [, token] of value.matchAll(/\{\{([^{}]+)\}\}/g)) {
+      if (!mailVariables.includes(token)) fail("Há uma variável desconhecida no modelo de e-mail.");
+    }
+  }
+  return template;
+}
+
 function configuration(body, { allowEmptyDates = false } = {}) {
   const c = { ...DEFAULT_CONFIG };
+  for (const [field, limit] of Object.entries({ campaignName: 150, campaignDescription: 2000, restaurantName: 150 })) {
+    if (typeof body[field] === "string" && body[field].trim()) c[field] = body[field].trim().slice(0, limit);
+  }
+  for (const event of Object.keys(mailDefaults)) {
+    const template = mailTemplate(event, body[`messageSubject${event}`], body[`message${event}`]);
+    for (const [key, value] of Object.entries(template)) if (value) c[key] = value;
+  }
+  if (body.voucherAmount !== undefined && body.voucherAmount !== "") {
+    const amount = Number(body.voucherAmount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 100000)
+      fail("Informe um valor válido para o voucher.");
+    c.voucherAmount = Number(amount.toFixed(2));
+  }
   for (const k of mandatory)
     c[k] = typeof body[k] === "string" ? body[k].trim().slice(0, 30000) : "";
   if (!Array.isArray(body.dates))
@@ -218,6 +246,9 @@ function configuration(body, { allowEmptyDates = false } = {}) {
   if (c.published && missing(c).length)
     fail(`Resolva as configurações pendentes: ${missing(c).join(", ")}.`);
   if (c.published) {
+    if (!c.dates.some((date) => [...c.lunch, ...c.dinner].some((time) =>
+      Date.parse(`${date}T${time}:00-03:00`) >= Date.now() + c.minimumHours * 3600000)))
+      fail("Selecione pelo menos uma data futura que respeite a antecedência mínima.");
     key();
     if (!process.env.LOCOMOTIVA_SMTP_URL || !process.env.LOCOMOTIVA_MAIL_FROM)
       fail("Configure o serviço de e-mail antes da publicação.");
@@ -259,6 +290,7 @@ function participant(body) {
   };
 }
 module.exports = {
+  mailTemplate,
   localTestEnabled,
   localTestConfiguration,
   DATES,

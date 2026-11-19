@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const v = require("../src/services/locomotivaValidation");
+const { defaults, formattedEmail } = require("../src/services/locomotivaMailTemplates");
 process.env.LOCOMOTIVA_DATA_KEY ||= "ab".repeat(32);
 test("CPF, encryption and profile normalization reject invalid and internal URLs", () => {
   assert.ok(v.cpfValid("52998224725"));
@@ -35,6 +36,37 @@ test("configuration requires approved documents and disallows arrivals at closin
   assert.equal(v.DATES.length, 10);
   assert.deepEqual(v.configuration({ ...v.DEFAULT_CONFIG, dates: ["2027-02-01", "2026-12-05", "2027-02-01"] }).dates, ["2026-12-05", "2027-02-01"]);
   assert.throws(() => v.configuration({ ...v.DEFAULT_CONFIG, dates: ["2027-02-29"] }));
+});
+
+test("reservation settings retain the voucher value and supported message templates", () => {
+  const result = v.configuration({
+    ...v.DEFAULT_CONFIG,
+    restaurantName: " Locomotiva ",
+    voucherAmount: "219.50",
+    messageCONFIRMED: "Olá, {{nome}}!",
+    messageUNKNOWN: "Ignorar",
+  });
+  assert.equal(result.restaurantName, "Locomotiva");
+  assert.equal(result.voucherAmount, 219.5);
+  assert.equal(result.messageCONFIRMED, "Olá, {{nome}}!");
+  assert.equal(result.messageUNKNOWN, undefined);
+  assert.throws(() => v.configuration({ ...v.DEFAULT_CONFIG, voucherAmount: -1 }), /valor válido/);
+  const expired = { ...v.DEFAULT_CONFIG, dates: ["2000-01-15"], lunch: ["12:00"], published: true };
+  for (const field of v.missing(expired)) expired[field] = "Valor de teste";
+  assert.throws(() => v.configuration(expired), /data futura/);
+});
+
+test("all five events have editable defaults and the branded HTML escapes message text", () => {
+  assert.deepEqual(Object.keys(defaults).sort(), ["CANCELLED", "CONFIRMED", "RECEIVED", "REJECTED", "UPDATED"]);
+  for (const [event, template] of Object.entries(defaults)) {
+    assert.ok(template.subject && template.body.includes("{{nome}}"));
+    assert.doesNotThrow(() => v.mailTemplate(event, template.subject, template.body));
+  }
+  assert.throws(() => v.mailTemplate("RECEIVED", "Olá", "{{senha}}"), /variável desconhecida/);
+  const html = formattedEmail("Visita <teste>", "Olá <script>\nSegunda linha\n\nOutro parágrafo.");
+  assert.match(html, /Visita &lt;teste&gt;/);
+  assert.match(html, /Olá &lt;script&gt;<br>Segunda linha/);
+  assert.doesNotMatch(html, /<script>/);
 });
 
 // Integration suite only runs with an explicitly selected disposable local database.
@@ -392,6 +424,7 @@ if (integration) {
           });
           assert.equal(list.status, 200);
           const dashboard = await list.json();
+          assert.deepEqual(dashboard.mailTemplates, defaults);
           assert.deepEqual(
             dashboard.registrations.map(({ id }) => id).sort(),
             acceptanceBefore.map(({ id }) => id),
@@ -401,6 +434,9 @@ if (integration) {
           await save("publish", {}, 400);
           const additionalDate = "2027-02-01";
           await save("save", { config: { ...saved, address: "Novo endereço de teste", dates: [...saved.dates, additionalDate] } });
+          await save("block-days", { dates: [additionalDate], reason: "Ajuste de agenda" });
+          assert.equal((await r.settingsState()).administration.draft.dates.includes(additionalDate), false);
+          await save("save", { config: { ...saved, address: "Novo endereço de teste", dates: [...saved.dates, additionalDate], messageSubjectRECEIVED: "Teste {{nome}}" } });
           await save("approve", { document: "conditions" }, 400);
           await save("review", { document: "conditions" });
           for (const document of ["imageTerm", "privacy"]) {
@@ -413,6 +449,9 @@ if (integration) {
           process.env.LOCOMOTIVA_MAIL_FROM = "teste@example.invalid";
           try {
             await save("publish");
+            const publicData = await (await fetch(`${base}/locomotiva/config`)).json();
+            assert.equal(publicData.config.messageSubjectRECEIVED, undefined);
+            assert.equal((await r.config()).messageSubjectRECEIVED, "Teste {{nome}}");
             assert.equal((await r.config()).revision, saved.revision + 1);
             assert.equal((await r.availability()).find(({ date }) => date === additionalDate)?.state, "AVAILABLE");
             await save("close");
@@ -428,6 +467,11 @@ if (integration) {
           const acceptanceAfter = await r.prisma.$queryRaw`SELECT id, data->'acceptance' AS acceptance FROM "LocomotivaRegistration" ORDER BY id`;
           assert.deepEqual(acceptanceAfter, acceptanceBefore);
           assert.ok(!(await r.config()).administration);
+          await save("save-mail-template", { event: "RECEIVED", subject: "Olá, {{nome}}", body: "Recebemos sua solicitação para {{data}}." });
+          assert.equal((await r.config()).revision, saved.revision + 1);
+          assert.equal((await r.config()).messageRECEIVED, "Recebemos sua solicitação para {{data}}.");
+          assert.equal((await r.config()).messageSubjectCONFIRMED, undefined);
+          assert.equal((await r.settingsState()).administration.draft.messageSubjectRECEIVED, "Olá, {{nome}}");
           for (const page of ["condicoes.html", "seus-dados.html", "sua-visita.html", "solicitacao-recebida.html"]) {
             assert.equal((await fetch(`${base}/campanha-locomotiva/${page}`)).status, 200);
           }
@@ -475,7 +519,11 @@ if (integration) {
           assert.equal(record.date, additionalDate);
           assert.equal(record.status, "PENDING");
           assert.equal(record.acceptance.revision, visitor.revision);
+          await save("block-days", { dates: [additionalDate], reason: "Data já solicitada" }, 409);
           assert.ok(record.emails.some(({ kind, state }) => kind === "RECEIVED" && state === "PENDING"));
+          const [queued] = await r.prisma.$queryRaw`SELECT payload FROM "LocomotivaMail" WHERE "registrationId" = ${receipt.protocol} AND kind = 'RECEIVED'`;
+          assert.equal(queued.payload.subject, `Olá, ${visitor.name}`);
+          assert.match(queued.payload.text, /Recebemos sua solicitação para 01\/02\/2027/);
           flow.diagnostic(`Reserva fictícia ${receipt.protocol}, ${visitor.date} às ${visitor.time}, em análise.`);
           const localDate = "2027-02-02";
           await save("publish-local", { dates: [localDate] }, 403);
@@ -501,6 +549,20 @@ if (integration) {
             else process.env.LOCOMOTIVA_LOCAL_TEST = localFlag;
           }
           assert.equal((await r.config()).published, false);
+          const deletionUrl = `${base}/admin/locomotiva/registrations/${receipt.protocol}`;
+          const headers = { Authorization: `Bearer ${payloadToken}.${signature}` };
+          assert.equal((await fetch(deletionUrl, { method: "DELETE", headers })).status, 403);
+          await r.prisma.$executeRaw`UPDATE "User" SET role='ADMIN' WHERE id=${manager.id}`;
+          try {
+            assert.equal((await fetch(deletionUrl, { method: "DELETE", headers })).status, 204);
+            assert.equal((await fetch(deletionUrl, { headers })).status, 404);
+            const messages = await r.prisma.$queryRaw`SELECT id FROM "LocomotivaMail" WHERE "registrationId"=${receipt.protocol}`;
+            assert.deepEqual(messages, []);
+            const audit = await r.prisma.$queryRaw`SELECT id FROM "LocomotivaAudit" WHERE "registrationId"=${receipt.protocol} AND action='REGISTRATION_DELETED'`;
+            assert.equal(audit.length, 1);
+          } finally {
+            await r.prisma.$executeRaw`UPDATE "User" SET role='MANAGER' WHERE id=${manager.id}`;
+          }
         });
       },
     );

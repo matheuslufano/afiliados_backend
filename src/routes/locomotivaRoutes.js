@@ -9,8 +9,10 @@ const {
 const r = require("../services/locomotivaRepository");
 const v = require("../services/locomotivaValidation");
 const mail = require("../services/locomotivaMail");
+const { defaults: mailTemplates } = require("../services/locomotivaMailTemplates");
 const instagramPhoto = require("../services/locomotivaInstagramPhoto");
 const router = express.Router();
+const publicCampaign = (config) => Object.fromEntries(Object.entries(config).filter(([key]) => !key.startsWith("message")));
 async function readRegistrationCpf(id, data, actor) {
   const cpf = v.decrypt(data.cpfCipher);
   await r.audit(r.prisma, id, actor, "CPF_READ", "Consulta restrita ao administrador");
@@ -63,7 +65,7 @@ router.get(
   wrap(async (req, res) => {
     const c = await r.config();
     res.json({
-      config: c.published ? c : { ...v.DEFAULT_CONFIG, revision: c.revision },
+      config: c.published ? publicCampaign(c) : { ...v.DEFAULT_CONFIG, revision: c.revision },
       availability: c.published ? await r.availability() : [],
     });
   }),
@@ -105,11 +107,13 @@ router.get(
     res.json({
       config: c.localTest && !v.localTestEnabled() ? { ...c, published: false } : c,
       localTestEnabled: v.localTestEnabled(),
+      mailTemplates,
       settings: administration && {
         draft: administration.draft,
         version: administration.version,
         updatedAt: administration.updatedAt,
         reviews: administration.reviews,
+        history: administration.history?.slice(-20).reverse().map(({ config, at, reviews }) => ({ revision: config.revision, at, reviews })),
       },
       missing: v.missing(administration?.draft || c),
       availability,
@@ -131,7 +135,7 @@ router.put(
       const { operation, version, config, document } = req.body;
       if (version !== (administration?.version ?? 0))
         v.fail("A configuração mudou. Recarregue antes de salvar.", 409);
-      const documents = ["conditions", "imageTerm", "privacy"];
+      const documents = ["conditions", "voucher", "imageTerm", "privacy"];
       const previous = administration?.draft || v.configuration({ ...live, published: false }, { allowEmptyDates: true });
       const publicRules = (value) => {
         const { approvedBy, ...rules } = v.configuration({ ...value, published: false }, { allowEmptyDates: true });
@@ -142,13 +146,32 @@ router.put(
         draft: previous,
         reviews: { ...administration?.reviews },
         history: [...(administration?.history || [])],
+        blockedDates: [...(administration?.blockedDates || [])],
         version: version + 1,
         updatedAt,
       };
       let published = live;
-      if (operation === "save") {
+      if (operation === "save-mail-template") {
+        const { event, subject, body } = req.body;
+        const template = v.mailTemplate(event, subject, body);
+        editor.draft = { ...previous, ...template };
+        published = { ...live, ...template };
+        await r.audit(tx, null, req.user.id, "MAIL_TEMPLATE", event);
+      } else if (operation === "block-days") {
+        const reason = v.required(req.body.reason, "motivo do bloqueio", 500);
+        const requested = req.body.dates;
+        if (!Array.isArray(requested) || !requested.length || requested.some((date) => !previous.dates.includes(date)))
+          v.fail("Selecione datas disponíveis no rascunho.");
+        const occupied = await tx.$queryRaw`SELECT date FROM "LocomotivaRegistration" WHERE status IN ('PENDING','CONFIRMED','ATTENDED','ABSENT')`;
+        if (occupied.some(({ date }) => requested.includes(date))) v.fail("Há reservas afetadas. Atualize a agenda antes de bloquear.", 409);
+        editor.draft = { ...previous, dates: previous.dates.filter((date) => !requested.includes(date)) };
+        editor.blockedDates = [...new Set([...editor.blockedDates, ...requested])];
+        for (const key of documents) if (editor.reviews[key]) editor.reviews[key] = { status: "draft", version: editor.version };
+        await r.audit(tx, null, req.user.id, "BLOCK_DAYS", `${requested.join(", ")}; ${reason}`);
+      } else if (operation === "save") {
         editor.draft = v.configuration({ ...config, published: false }, { allowEmptyDates: true });
-        if (publicRules(editor.draft) !== publicRules(previous)) {
+        editor.blockedDates = editor.blockedDates.filter((date) => !editor.draft.dates.includes(date));
+        if (publicRules(publicCampaign(editor.draft)) !== publicRules(publicCampaign(previous))) {
           for (const key of documents) {
             if (editor.reviews[key]) editor.reviews[key] = { status: "draft", version: editor.version };
           }
@@ -176,8 +199,12 @@ router.put(
         if (["imageTerm", "privacy"].some((key) => editor.reviews[key]?.status !== "approved"))
           v.fail("Aprove o termo de uso de imagem e o aviso de privacidade antes de publicar.");
         const next = v.configuration({ ...previous, published: true });
-        const changed = live.localTest || publicRules(next) !== publicRules(live) || live.revision === 0;
-        published = changed ? { ...next, revision: live.revision + 1 } : { ...live, published: true };
+        if (editor.blockedDates.length) {
+          const occupied = await tx.$queryRaw`SELECT date FROM "LocomotivaRegistration" WHERE status IN ('PENDING','CONFIRMED','ATTENDED','ABSENT')`;
+          if (occupied.some(({ date }) => editor.blockedDates.includes(date))) v.fail("Há reservas em datas bloqueadas no rascunho. Resolva os conflitos antes de publicar.", 409);
+        }
+        const changed = live.localTest || publicRules(publicCampaign(next)) !== publicRules(publicCampaign(live)) || live.revision === 0;
+        published = { ...next, revision: changed ? live.revision + 1 : live.revision };
         if (changed || !editor.history.some((entry) => entry.config.revision === live.revision)) {
           if (live.revision && !editor.history.some((entry) => entry.config.revision === live.revision))
             editor.history.push({ config: live });
@@ -197,6 +224,32 @@ router.put(
     res.json(result);
   }),
 );
+router.post("/admin/locomotiva/mail/check", requireAuth, requireAdmin, wrap(async (req, res) => {
+  if (v.localTestEnabled() || !process.env.LOCOMOTIVA_SMTP_URL || !process.env.LOCOMOTIVA_MAIL_FROM)
+    v.fail("Envio não configurado para este ambiente.", 409);
+  let verified = false;
+  try { verified = await mail.verifyConnection(); } catch { /* Only expose the result, never the provider response. */ }
+  await r.audit(r.prisma, null, req.user.id, "MAIL_CONNECTION_CHECK", verified ? "SMTP validado" : "SMTP não confirmado");
+  if (!verified) v.fail("O provedor não confirmou a conexão de e-mail.", 502);
+  res.json({ verified });
+}));
+router.post("/admin/locomotiva/mail/test", requireAuth, requireAdmin, wrap(async (req, res) => {
+  if (v.localTestEnabled() || !process.env.LOCOMOTIVA_SMTP_URL || !process.env.LOCOMOTIVA_MAIL_FROM)
+    v.fail("Envio não configurado para este ambiente.", 409);
+  const recipient = v.required(req.body.recipient, "destinatário", 254);
+  if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(recipient)) v.fail("Informe um único endereço de e-mail válido.");
+  const subject = v.required(req.body.subject, "assunto", 500).replace(/[\r\n]+/g, " ");
+  const text = v.required(req.body.text, "mensagem", 8000);
+  const bucket = crypto.createHash("sha256").update(`mail-test:${req.user.id}:${Math.floor(Date.now()/900000)}`).digest("hex");
+  await r.prisma.$executeRaw`DELETE FROM "LocomotivaRate" WHERE "expiresAt" < now()`;
+  const [rate] = await r.prisma.$queryRaw`INSERT INTO "LocomotivaRate" (key,"expiresAt") VALUES (${bucket}, now() + interval '15 minutes') ON CONFLICT (key) DO UPDATE SET count = "LocomotivaRate".count + 1 RETURNING count`;
+  if (rate.count > 3) v.fail("Limite de testes atingido. Tente novamente em alguns minutos.", 429);
+  let accepted = false;
+  try { accepted = await mail.sendTest({ recipient, subject, text }); } catch { /* Keep SMTP details private. */ }
+  await r.audit(r.prisma, null, req.user.id, "MAIL_TEST", accepted ? "Aceito pelo provedor" : "Envio não confirmado");
+  if (!accepted) v.fail("O provedor não confirmou o envio de teste.", 502);
+  res.json({ accepted });
+}));
 router.get(
   "/admin/locomotiva/registrations/:id",
   wrap(async (req, res) => {
@@ -221,6 +274,14 @@ router.get(
       .$queryRaw`SELECT data FROM "LocomotivaRegistration" WHERE id = ${req.params.id}`;
     if (!row) v.fail("Inscrição não encontrada.", 404);
     res.json({ cpf: await readRegistrationCpf(req.params.id, row.data, req.user.id) });
+  }),
+);
+router.delete(
+  "/admin/locomotiva/registrations/:id",
+  requireAdmin,
+  wrap(async (req, res) => {
+    await r.deleteRegistration(req.params.id, req.user.id);
+    res.status(204).end();
   }),
 );
 router.put(

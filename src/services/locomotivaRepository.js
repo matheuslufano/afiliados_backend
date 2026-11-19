@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const prisma = require("../database/prisma");
 const v = require("./locomotivaValidation");
+const { defaults: mailDefaults } = require("./locomotivaMailTemplates");
 const id = () => crypto.randomUUID();
 // One campaign-wide transaction lock serializes configuration and reservation decisions.
 // Partial unique database indexes remain the final protection against concurrent writers.
@@ -57,14 +58,14 @@ async function queue(tx, registration, c, kind) {
   if (registration.data.acceptance?.terms?.localTest) return;
   await tx.$executeRaw`UPDATE "LocomotivaMail" SET state = 'SUPERSEDED' WHERE "registrationId" = ${registration.id} AND state IN ('PENDING','FAILED')`;
   const d = registration.data;
-  const title = {
-    RECEIVED: "Solicitação recebida — em análise",
-    CONFIRMED: "Participação aprovada pela Locomotiva",
-    UPDATED: "Atualização da visita Locomotiva",
-    REJECTED: "Solicitação recusada",
-    CANCELLED: "Participação cancelada",
-  }[kind];
-  const text = `${title}\nProtocolo: ${registration.id}\nData: ${registration.date} às ${d.time}\n${kind === "RECEIVED" ? "Sua participação está em análise. A visita somente estará confirmada após aprovação expressa do restaurante, enviada por e-mail." : `Situação: ${registration.status}`}\nEndereço: ${c.address}\nVoucher de R$ 200: ${c.voucher}\nAcompanhantes: ${c.companions}\nExcedente: ${c.excess}\nSaldo restante: ${c.balance}\nConteúdo: ${d.modality === "STORIES" ? "4 Stories" : "1 Reels de 60 segundos"}\nPublicação: ${c.publication}\nMarcação: ${c.tags}\nCancelamento: ${c.cancellation}\nContato: ${c.contact}`;
+  const terms = d.acceptance?.terms ?? c;
+  const voucherAmount = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(terms.voucherAmount ?? 200);
+  const values = { nome: d.name, data: registration.date.split("-").reverse().join("/"), horario: d.time, endereco: terms.address, voucher: voucherAmount, link: "https://locomotiva-six.vercel.app/campanha-locomotiva/" };
+  const render = (template) => template?.replace(/\{\{(nome|data|horario|endereco|voucher|link)\}\}/g, (_, key) => values[key] ?? "");
+  const title = render(c[`messageSubject${kind}`] || mailDefaults[kind].subject);
+  const template = c[`message${kind}`] || mailDefaults[kind].body;
+  const message = render(template);
+  const text = `${message}\n\nDados da solicitação\nProtocolo: ${registration.id}\nData: ${registration.date} às ${d.time}\n${kind === "RECEIVED" ? "Sua participação está em análise. A visita somente estará confirmada após aprovação expressa do restaurante, enviada por e-mail." : `Situação: ${{ CONFIRMED: "Aprovada", PENDING: "Em análise", REJECTED: "Recusada", CANCELLED: "Cancelada" }[registration.status] ?? registration.status}`}\nEndereço: ${terms.address}\nVoucher de ${voucherAmount}: ${terms.voucher}\nAcompanhantes: ${terms.companions}\nExcedente: ${terms.excess}\nSaldo restante: ${terms.balance}\nConteúdo: ${d.modality === "STORIES" ? "4 Stories" : "1 Reels de 60 segundos"}\nPublicação: ${terms.publication}\nMarcação: ${terms.tags}\nCancelamento: ${terms.cancellation}\nContato: ${terms.contact}`;
   await tx.$executeRaw`INSERT INTO "LocomotivaMail" (id,"registrationId",kind,payload) VALUES (${id()},${registration.id},${kind},${JSON.stringify({ to: d.email, subject: title, text })}::jsonb)`;
 }
 async function submit(body) {
@@ -154,6 +155,7 @@ function receipt(r) {
     date: r.date,
     time: r.data.time,
     email: r.data.email,
+    voucherAmount: r.data.acceptance?.terms?.voucherAmount ?? 200,
     ...(r.data.acceptance?.terms?.localTest && { localTest: true }),
   };
 }
@@ -197,6 +199,12 @@ async function update(registrationId, body, actor) {
       body.date !== r.date ||
       body.time !== r.data.time ||
       body.period !== r.data.period;
+    if (r.status === "PENDING" && status === "CONFIRMED" && !changedVisit) {
+      if (!c.dates.includes(r.date) || !c[r.data.period]?.includes(r.data.time))
+        v.fail("A data ou o horário solicitado não está mais disponível. Reagende a visita.", 409);
+      const occupied = await tx.$queryRaw`SELECT id FROM "LocomotivaRegistration" WHERE date = ${r.date} AND id <> ${r.id} AND status IN ('CONFIRMED','ATTENDED','ABSENT')`;
+      if (occupied.length) v.fail("A data escolhida já está ocupada.", 409);
+    }
     const data = {
       ...r.data,
       notes: String(body.notes || "").slice(0, 10000),
@@ -269,7 +277,20 @@ async function update(registrationId, body, actor) {
     return { ok: true };
   });
 }
+async function deleteRegistration(id, actor) {
+  return transaction(async (tx) => {
+    const [record] = await tx.$queryRaw`SELECT id FROM "LocomotivaRegistration" WHERE id=${id} FOR UPDATE`;
+    if (!record) v.fail("Inscrição não encontrada.", 404);
+    const messages = await tx.$queryRaw`SELECT state FROM "LocomotivaMail" WHERE "registrationId"=${id} FOR UPDATE`;
+    if (messages.some(({ state }) => state === "SENDING"))
+      v.fail("Há um e-mail em envio. Aguarde a conclusão e tente novamente.", 409);
+    await tx.$executeRaw`DELETE FROM "LocomotivaMail" WHERE "registrationId"=${id}`;
+    await tx.$executeRaw`DELETE FROM "LocomotivaRegistration" WHERE id=${id}`;
+    await audit(tx, id, actor, "REGISTRATION_DELETED", "Reserva excluída pelo administrador.");
+  });
+}
 module.exports = {
+  deleteRegistration,
   settingsState,
   prisma,
   id,
