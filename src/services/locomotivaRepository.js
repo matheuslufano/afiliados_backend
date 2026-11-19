@@ -13,10 +13,15 @@ async function transaction(fn) {
     { timeout: 15000 },
   );
 }
-async function config(tx = prisma) {
+async function settingsState(tx = prisma) {
   const rows =
     await tx.$queryRaw`SELECT data FROM "LocomotivaConfig" WHERE id = 1`;
   return rows[0]?.data || structuredClone(v.DEFAULT_CONFIG);
+}
+async function config(tx = prisma) {
+  const { administration, ...published } = await settingsState(tx);
+  if (published.localTest && !v.localTestEnabled()) return { ...published, published: false };
+  return published;
 }
 async function audit(tx, registrationId, actor, action, reason) {
   await tx.$executeRaw`INSERT INTO "LocomotivaAudit" (id,"registrationId",actor,action,reason) VALUES (${id()},${registrationId},${String(actor)},${action},${reason})`;
@@ -25,7 +30,7 @@ async function availability(tx = prisma) {
   const c = await config(tx),
     rows =
       await tx.$queryRaw`SELECT date,status FROM "LocomotivaRegistration" WHERE status IN ('PENDING','CONFIRMED','ATTENDED','ABSENT')`;
-  return v.DATES.map((date) => {
+  return [...new Set([...c.dates, ...rows.map((row) => row.date)])].sort().map((date) => {
     const row = rows.find((r) => r.date === date);
     const times = Object.fromEntries(
       ["lunch", "dinner"].map((p) => [
@@ -49,6 +54,7 @@ async function availability(tx = prisma) {
   });
 }
 async function queue(tx, registration, c, kind) {
+  if (registration.data.acceptance?.terms?.localTest) return;
   await tx.$executeRaw`UPDATE "LocomotivaMail" SET state = 'SUPERSEDED' WHERE "registrationId" = ${registration.id} AND state IN ('PENDING','FAILED')`;
   const d = registration.data;
   const title = {
@@ -90,10 +96,10 @@ async function submit(body) {
     v.visit(body, c);
     const person = v.participant(body);
     const occupied =
-      await tx.$queryRaw`SELECT id FROM "LocomotivaRegistration" WHERE status IN ('PENDING','CONFIRMED','ATTENDED','ABSENT') AND (date = ${body.date} OR "cpfHash" = ${person.cpfHash} OR instagram = ${person.instagram} OR email = ${person.email})`;
+      await tx.$queryRaw`SELECT id FROM "LocomotivaRegistration" WHERE status IN ('PENDING','CONFIRMED','ATTENDED','ABSENT') AND date = ${body.date}`;
     if (occupied.length)
       v.fail(
-        "A data foi ocupada ou já existe uma inscrição ativa com os dados informados. Escolha outra data ou contate a equipe.",
+        "A data escolhida já está ocupada. Selecione outra data disponível.",
         409,
       );
     let inviteId = null;
@@ -148,6 +154,7 @@ function receipt(r) {
     date: r.date,
     time: r.data.time,
     email: r.data.email,
+    ...(r.data.acceptance?.terms?.localTest && { localTest: true }),
   };
 }
 function safe(r) {
@@ -263,6 +270,7 @@ async function update(registrationId, body, actor) {
   });
 }
 module.exports = {
+  settingsState,
   prisma,
   id,
   transaction,

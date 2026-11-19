@@ -9,7 +9,13 @@ const {
 const r = require("../services/locomotivaRepository");
 const v = require("../services/locomotivaValidation");
 const mail = require("../services/locomotivaMail");
+const instagramPhoto = require("../services/locomotivaInstagramPhoto");
 const router = express.Router();
+async function readRegistrationCpf(id, data, actor) {
+  const cpf = v.decrypt(data.cpfCipher);
+  await r.audit(r.prisma, id, actor, "CPF_READ", "Consulta restrita ao administrador");
+  return cpf;
+}
 const wrap = (fn) => async (req, res) => {
   try {
     await fn(req, res);
@@ -35,17 +41,20 @@ const wrap = (fn) => async (req, res) => {
 router.use(["/locomotiva", "/admin/locomotiva"], (req, res, next) => {
   res.set("Cache-Control", "no-store");
   res.set("Referrer-Policy", "no-referrer");
+  if (v.localTestEnabled() && !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress))
+    return res.status(403).json({ error: "O modo de teste aceita apenas conexões locais." });
   next();
 });
-// No URL fetching: the current installation has no authorized Instagram photo provider.
 router.post(
   "/locomotiva/profile",
   wrap(async (req, res) => {
+    const profile = v.instagram(req.body.profileUrl);
+    const image = await instagramPhoto.lookupPhoto(profile.instagram);
     res.json({
-      ...v.instagram(req.body.instagram, req.body.profileUrl),
-      photo: null,
-      source: null,
-      state: "UNAVAILABLE",
+      ...profile,
+      photo: image?.photo ?? null,
+      source: image?.source ?? null,
+      state: image ? "AVAILABLE" : "UNAVAILABLE",
     });
   }),
 );
@@ -78,23 +87,31 @@ router.post(
       );
     const receipt = await r.submit(req.body);
     res.status(201).json(receipt);
-    mail.drain().catch(() => {});
+    if (!receipt.localTest) mail.drain().catch(() => {});
   }),
 );
 router.use("/admin/locomotiva", requireAuth, requireManager);
 router.get(
   "/admin/locomotiva",
   wrap(async (req, res) => {
-    const [c, availability, registrations, invites] = await Promise.all([
-      r.config(),
+    const [state, availability, registrations, invites] = await Promise.all([
+      r.settingsState(),
       r.availability(),
       r.prisma
         .$queryRaw`SELECT * FROM "LocomotivaRegistration" ORDER BY "createdAt" DESC`,
       r.prisma.$queryRaw`SELECT id,data FROM "LocomotivaInvite"`,
     ]);
+    const { administration, ...c } = state;
     res.json({
-      config: c,
-      missing: v.missing(c),
+      config: c.localTest && !v.localTestEnabled() ? { ...c, published: false } : c,
+      localTestEnabled: v.localTestEnabled(),
+      settings: administration && {
+        draft: administration.draft,
+        version: administration.version,
+        updatedAt: administration.updatedAt,
+        reviews: administration.reviews,
+      },
+      missing: v.missing(administration?.draft || c),
       availability,
       registrations: registrations.map(r.safe),
       invites: invites.map((i) => ({ id: i.id, ...i.data })),
@@ -102,7 +119,7 @@ router.get(
       mailConfigured: Boolean(
         process.env.LOCOMOTIVA_SMTP_URL && process.env.LOCOMOTIVA_MAIL_FROM,
       ),
-      photoIntegration: false,
+      photoIntegration: instagramPhoto.isConfigured(),
     });
   }),
 );
@@ -110,19 +127,72 @@ router.put(
   "/admin/locomotiva/config",
   wrap(async (req, res) => {
     const result = await r.transaction(async (tx) => {
-      const old = await r.config(tx);
-      if (req.body.revision !== old.revision)
+      const { administration, ...live } = await r.settingsState(tx);
+      const { operation, version, config, document } = req.body;
+      if (version !== (administration?.version ?? 0))
         v.fail("A configuração mudou. Recarregue antes de salvar.", 409);
-      const c = { ...v.configuration(req.body), revision: old.revision + 1 };
-      await tx.$executeRaw`INSERT INTO "LocomotivaConfig" (id,data) VALUES (1,${JSON.stringify(c)}::jsonb) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`;
-      await r.audit(
-        tx,
-        null,
-        req.user.id,
-        "CONFIG",
-        `Versão ${c.revision}; ${c.published ? "publicada" : "fechada"}; aprovação declarada: ${c.approvedBy}`,
-      );
-      return c;
+      const documents = ["conditions", "imageTerm", "privacy"];
+      const previous = administration?.draft || v.configuration({ ...live, published: false }, { allowEmptyDates: true });
+      const publicRules = (value) => {
+        const { approvedBy, ...rules } = v.configuration({ ...value, published: false }, { allowEmptyDates: true });
+        return JSON.stringify(rules);
+      };
+      const updatedAt = new Date().toISOString();
+      const editor = {
+        draft: previous,
+        reviews: { ...administration?.reviews },
+        history: [...(administration?.history || [])],
+        version: version + 1,
+        updatedAt,
+      };
+      let published = live;
+      if (operation === "save") {
+        editor.draft = v.configuration({ ...config, published: false }, { allowEmptyDates: true });
+        if (publicRules(editor.draft) !== publicRules(previous)) {
+          for (const key of documents) {
+            if (editor.reviews[key]) editor.reviews[key] = { status: "draft", version: editor.version };
+          }
+        }
+      } else if (operation === "review" || operation === "approve") {
+        if (!documents.includes(document) || !previous[document]?.trim())
+          v.fail("Preencha e salve o documento antes de revisar.");
+        if (operation === "approve" && (editor.reviews[document]?.status !== "review" ||
+          !previous.approvedBy?.trim() || /rascunho|\bminuta\b|\bpendente de\b|\ba confirmar\b/i.test(previous[document])))
+          v.fail("Confira o responsável, envie para revisão e retire as notas internas antes da aprovação.");
+        editor.reviews[document] = operation === "approve"
+          ? { status: "approved", version: editor.version, by: previous.approvedBy, actor: req.user.id, at: updatedAt }
+          : { status: "review", version: editor.version };
+      } else if (operation === "publish-local") {
+        if (!v.localTestEnabled()) v.fail("A ativação de teste só está disponível no ambiente local.", 403);
+        const next = v.localTestConfiguration(previous, req.body.dates);
+        if (![...next.lunch, ...next.dinner].some((time) =>
+          next.dates.some((date) => Date.parse(`${date}T${time}:00-03:00`) > Date.now())))
+          v.fail("Escolha pelo menos uma data com horário futuro.");
+        if (live.revision && !editor.history.some((entry) => entry.config.revision === live.revision))
+          editor.history.push({ config: live });
+        published = { ...next, revision: live.revision + 1 };
+        editor.history.push({ config: published, at: updatedAt });
+      } else if (operation === "publish") {
+        if (["imageTerm", "privacy"].some((key) => editor.reviews[key]?.status !== "approved"))
+          v.fail("Aprove o termo de uso de imagem e o aviso de privacidade antes de publicar.");
+        const next = v.configuration({ ...previous, published: true });
+        const changed = live.localTest || publicRules(next) !== publicRules(live) || live.revision === 0;
+        published = changed ? { ...next, revision: live.revision + 1 } : { ...live, published: true };
+        if (changed || !editor.history.some((entry) => entry.config.revision === live.revision)) {
+          if (live.revision && !editor.history.some((entry) => entry.config.revision === live.revision))
+            editor.history.push({ config: live });
+          if (published.revision !== live.revision || !live.revision)
+            editor.history.push({ config: published, reviews: editor.reviews, at: updatedAt });
+        }
+      } else if (operation === "close") {
+        published = { ...live, published: false };
+      } else {
+        v.fail("Selecione uma ação de configuração.");
+      }
+      const state = { ...published, administration: editor };
+      await tx.$executeRaw`INSERT INTO "LocomotivaConfig" (id,data) VALUES (1,${JSON.stringify(state)}::jsonb) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`;
+      await r.audit(tx, null, req.user.id, "CONFIG", `${operation}; edição ${editor.version}; versão pública ${published.revision}`);
+      return { version: editor.version, revision: published.revision };
     });
     res.json(result);
   }),
@@ -137,7 +207,10 @@ router.get(
       .$queryRaw`SELECT * FROM "LocomotivaAudit" WHERE "registrationId" = ${row.id} ORDER BY at`;
     const emails = await r.prisma
       .$queryRaw`SELECT id,kind,state,attempts,"lastError","sentAt","createdAt" FROM "LocomotivaMail" WHERE "registrationId" = ${row.id} ORDER BY "createdAt"`;
-    res.json({ ...r.safe(row), history, emails });
+    const cpfFull = req.user.role === "ADMIN"
+      ? await readRegistrationCpf(row.id, row.data, req.user.id)
+      : undefined;
+    res.json({ ...r.safe(row), cpfFull, history, emails });
   }),
 );
 router.get(
@@ -147,14 +220,7 @@ router.get(
     const [row] = await r.prisma
       .$queryRaw`SELECT data FROM "LocomotivaRegistration" WHERE id = ${req.params.id}`;
     if (!row) v.fail("Inscrição não encontrada.", 404);
-    await r.audit(
-      r.prisma,
-      req.params.id,
-      req.user.id,
-      "CPF_READ",
-      "Consulta restrita ao administrador",
-    );
-    res.json({ cpf: v.decrypt(row.data.cpfCipher) });
+    res.json({ cpf: await readRegistrationCpf(req.params.id, row.data, req.user.id) });
   }),
 );
 router.put(

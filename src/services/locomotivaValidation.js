@@ -36,21 +36,14 @@ function required(value, label, max = 1000) {
     fail(`Preencha ${label} corretamente.`);
   return value.trim();
 }
-function instagram(username, link) {
-  const handle = required(username, "Instagram", 30)
-    .replace(/^@/, "")
-    .toLowerCase();
-  if (
-    !/^[a-z0-9_](?:[a-z0-9_.]{0,28}[a-z0-9_])?$/.test(handle) ||
-    handle.includes("..")
-  )
-    fail("Usuário do Instagram inválido.");
+function instagram(link) {
   let url;
   try {
     url = new URL(link);
   } catch {
     fail("Informe o link completo do perfil do Instagram.");
   }
+  const handle = url.pathname.replace(/^\//, "").replace(/\/$/, "").toLowerCase();
   if (
     url.protocol !== "https:" ||
     !["instagram.com", "www.instagram.com"].includes(url.hostname) ||
@@ -59,10 +52,11 @@ function instagram(username, link) {
     url.password ||
     url.search ||
     url.hash ||
-    url.pathname.replace(/\/$/, "").toLowerCase() !== `/${handle}` ||
+    !/^[a-z0-9_](?:[a-z0-9_.]{0,28}[a-z0-9_])?$/.test(handle) ||
+    handle.includes("..") ||
     ["p", "reel", "reels", "stories", "explore", "accounts"].includes(handle)
   )
-    fail("O link deve corresponder ao usuário informado no Instagram.");
+    fail("Informe um link válido de perfil do Instagram, como https://www.instagram.com/seuperfil/.");
   return {
     instagram: handle,
     profileUrl: `https://www.instagram.com/${handle}/`,
@@ -81,6 +75,24 @@ function key() {
   if (!/^[a-f0-9]{64}$/i.test(raw))
     fail("Proteção dos dados ainda não configurada.", 503);
   return Buffer.from(raw, "hex");
+}
+function localTestEnabled() {
+  if (!["development", undefined].includes(process.env.NODE_ENV) || process.env.LOCOMOTIVA_LOCAL_TEST !== "true") return false;
+  try {
+    return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(process.env.DATABASE_URL).hostname);
+  } catch {
+    return false;
+  }
+}
+function localTestConfiguration(previous, dates) {
+  key();
+  const draft = configuration({ ...previous, dates, published: false });
+  const notice = "Simulação local da Locomotiva. Use somente dados fictícios. Esta solicitação não é uma reserva real.";
+  const times = draft.lunch.length || draft.dinner.length ? draft.lunch : ["11:30"];
+  return {
+    ...draft, lunch: times, minimumHours: 0, published: true, localTest: true,
+    conditions: notice, imageTerm: notice, privacy: notice,
+  };
 }
 function fingerprint(value) {
   return crypto.createHmac("sha256", key()).update(value).digest("hex");
@@ -159,16 +171,27 @@ const mandatory = [
 ];
 function missing(config) {
   return mandatory
-    .filter((k) => !String(config[k] || "").trim())
-    .concat(config.lunch.length + config.dinner.length ? [] : ["arrivalTimes"]);
+    .filter((k) => {
+      const value = String(config[k] || "");
+      if (k === "imagePromotion" && value.trim() === "Anúncios pagos: Permitido conforme condições específicas") return true;
+      return !(k === "contact" ? value.replace(/^(WhatsApp|Telefone|E-mail):/i, "") : value).trim();
+    })
+    .concat(config.lunch.length + config.dinner.length ? [] : ["arrivalTimes"])
+    .concat(config.dates.length ? [] : ["dates"]);
 }
-function configuration(body) {
+function configuration(body, { allowEmptyDates = false } = {}) {
   const c = { ...DEFAULT_CONFIG };
   for (const k of mandatory)
     c[k] = typeof body[k] === "string" ? body[k].trim().slice(0, 30000) : "";
-  c.dates = [...new Set(body.dates || [])];
-  if (!c.dates.length || c.dates.some((d) => !DATES.includes(d)))
-    fail("As datas devem estar entre 21 e 30/11/2026.");
+  if (!Array.isArray(body.dates))
+    fail("Selecione as datas no calendário.");
+  c.dates = [...new Set(body.dates)].sort();
+  if ((!allowEmptyDates && !c.dates.length) || c.dates.some((date) => {
+    if (typeof date !== "string" || !/^[1-9]\d{3}-\d{2}-\d{2}$/.test(date)) return true;
+    const parsed = new Date(`${date}T00:00:00Z`);
+    return !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date;
+  }))
+    fail("Selecione datas válidas no calendário.");
   for (const period of ["lunch", "dinner"]) {
     c[period] = [...new Set(body[period] || [])].sort();
     if (
@@ -221,7 +244,6 @@ function participant(body) {
       .includes(body.uf)
   )
     fail("Selecione uma UF válida.");
-  if (body.profileConfirmed !== true) fail("Confirme o perfil informado.");
   return {
     name: required(body.name, "nome completo", 150),
     cpfCipher: encrypt(cpf),
@@ -231,13 +253,14 @@ function participant(body) {
     phone,
     city: required(body.city, "cidade", 100),
     uf: body.uf,
-    ...instagram(body.instagram, body.profileUrl),
+    ...instagram(body.profileUrl),
     photo: photo(body.photo),
     photoState: body.photo ? "MANUAL" : "UNAVAILABLE",
-    profileConfirmedAt: new Date().toISOString(),
   };
 }
 module.exports = {
+  localTestEnabled,
+  localTestConfiguration,
   DATES,
   ACTIVE,
   DEFAULT_CONFIG,

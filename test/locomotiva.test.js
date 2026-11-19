@@ -10,16 +10,16 @@ test("CPF, encryption and profile normalization reject invalid and internal URLs
   assert.ok(!v.cpfValid("11111111111"));
   assert.equal(v.decrypt(v.encrypt("52998224725")), "52998224725");
   assert.equal(
-    v.instagram("@example", "https://instagram.com/example/").instagram,
+    v.instagram("https://instagram.com/Example/").instagram,
     "example",
   );
   for (const url of [
     "http://localhost/example",
     "https://instagram.com.evil.test/example",
     "https://instagram.com@127.0.0.1/example",
-    "https://instagram.com/other/",
+    "https://instagram.com/reel/example/",
   ])
-    assert.throws(() => v.instagram("example", url));
+    assert.throws(() => v.instagram(url));
   assert.throws(() => v.photo("data:image/svg+xml;base64,AAAA"));
 });
 test("configuration requires approved documents and disallows arrivals at closing", () => {
@@ -33,6 +33,8 @@ test("configuration requires approved documents and disallows arrivals at closin
     v.configuration({ ...v.DEFAULT_CONFIG, published: true }),
   );
   assert.equal(v.DATES.length, 10);
+  assert.deepEqual(v.configuration({ ...v.DEFAULT_CONFIG, dates: ["2027-02-01", "2026-12-05", "2027-02-01"] }).dates, ["2026-12-05", "2027-02-01"]);
+  assert.throws(() => v.configuration({ ...v.DEFAULT_CONFIG, dates: ["2027-02-29"] }));
 });
 
 // Integration suite only runs with an explicitly selected disposable local database.
@@ -48,6 +50,8 @@ if (integration) {
   const r = require("../src/services/locomotivaRepository");
   const nodemailer = require("nodemailer");
   const mail = require("../src/services/locomotivaMail");
+  process.env.LOCOMOTIVA_LOCAL_TEST = "false";
+  process.env.LOCOMOTIVA_INSTAGRAM_PUBLIC_LOOKUP = "false";
   let server;
   after(async () => {
     if (server) await new Promise((resolve) => server.close(resolve));
@@ -70,6 +74,12 @@ if (integration) {
     await r.prisma.$executeRawUnsafe(
       'TRUNCATE "LocomotivaMail", "LocomotivaRegistration", "LocomotivaConfig", "LocomotivaAudit", "LocomotivaInvite", "LocomotivaRate"',
     );
+    await r.prisma.$executeRawUnsafe(fs.readFileSync(path.join(
+      __dirname, "../prisma/migrations/20261119150000_locomotiva_calendar_dates/migration.sql",
+    ), "utf8"));
+    await r.prisma.$executeRawUnsafe(fs.readFileSync(path.join(
+      __dirname, "../prisma/migrations/20261119160000_locomotiva_repeat_participation/migration.sql",
+    ), "utf8"));
     const config = {
       ...v.DEFAULT_CONFIG,
       published: true,
@@ -95,7 +105,6 @@ if (integration) {
         uf: "TO",
         instagram: "testprofile",
         profileUrl: "https://www.instagram.com/testprofile/",
-        profileConfirmed: true,
         date: "2026-11-21",
         period: "lunch",
         time: "11:30",
@@ -150,16 +159,15 @@ if (integration) {
       },
     );
     await t.test(
-      "duplicate identity and stale consent fail without a second booking",
+      "same participant can request a different date, and consent is still required",
       async () => {
-        await assert.rejects(
-          r.submit({
-            ...winningPayload,
-            requestKey: crypto.randomUUID(),
-            date: "2026-11-22",
-          }),
-          (e) => e.status === 409,
-        );
+        const repeat = await r.submit({
+          ...winningPayload,
+          requestKey: crypto.randomUUID(),
+          date: "2026-11-25",
+        });
+        assert.notEqual(repeat.protocol, receipt.protocol);
+        assert.equal(repeat.date, "2026-11-25");
         await assert.rejects(
           r.submit(payload({ revision: 0 })),
           (e) => e.status === 412,
@@ -309,7 +317,7 @@ if (integration) {
     );
     await t.test(
       "public HTTP and unauthorized administrative access",
-      async () => {
+      async (httpTest) => {
         const express = require("express");
         const app = express();
         app.use(express.json());
@@ -355,6 +363,145 @@ if (integration) {
           assert.fail("MANAGER cannot read CPF"),
         );
         assert.equal(status, 403);
+        await httpTest.test("draft, approvals, publication and closure preserve accepted terms", async (flow) => {
+          await r.prisma.$executeRaw`CREATE TABLE IF NOT EXISTS "User" (
+            id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, password TEXT NOT NULL,
+            "photoUrl" TEXT, role TEXT NOT NULL, active BOOLEAN NOT NULL, "teamId" INTEGER
+          )`;
+          const [manager] = await r.prisma.$queryRaw`INSERT INTO "User" (name,email,password,role,active)
+            VALUES ('Gestor de teste','locomotiva-manager@example.invalid','login bloqueado','MANAGER',true)
+            ON CONFLICT (email) DO UPDATE SET role = EXCLUDED.role, active = EXCLUDED.active RETURNING id`;
+          const payloadToken = Buffer.from(JSON.stringify({ id: manager.id })).toString("base64url");
+          const signature = crypto.createHmac("sha256", process.env.JWT_SECRET || "minha_chave_super_secreta")
+            .update(payloadToken).digest("base64url");
+          let version = 0;
+          const save = async (operation, extra = {}, expected = 200) => {
+            const response = await fetch(`${base}/admin/locomotiva/config`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${payloadToken}.${signature}` },
+              body: JSON.stringify({ operation, version, ...extra }),
+            });
+            const result = await response.json();
+            assert.equal(response.status, expected, JSON.stringify(result));
+            if (response.ok) version = result.version;
+          };
+          const saved = await r.config();
+          const acceptanceBefore = await r.prisma.$queryRaw`SELECT id, data->'acceptance' AS acceptance FROM "LocomotivaRegistration" ORDER BY id`;
+          const list = await fetch(`${base}/admin/locomotiva`, {
+            headers: { Authorization: `Bearer ${payloadToken}.${signature}` },
+          });
+          assert.equal(list.status, 200);
+          const dashboard = await list.json();
+          assert.deepEqual(
+            dashboard.registrations.map(({ id }) => id).sort(),
+            acceptanceBefore.map(({ id }) => id),
+          );
+          await save("save", { config: { ...saved, dates: [] } });
+          assert.deepEqual(await r.config(), saved);
+          await save("publish", {}, 400);
+          const additionalDate = "2027-02-01";
+          await save("save", { config: { ...saved, address: "Novo endereço de teste", dates: [...saved.dates, additionalDate] } });
+          await save("approve", { document: "conditions" }, 400);
+          await save("review", { document: "conditions" });
+          for (const document of ["imageTerm", "privacy"]) {
+            await save("review", { document });
+            await save("approve", { document });
+          }
+          const previousSmtp = process.env.LOCOMOTIVA_SMTP_URL;
+          const previousFrom = process.env.LOCOMOTIVA_MAIL_FROM;
+          process.env.LOCOMOTIVA_SMTP_URL = "smtp://example.invalid";
+          process.env.LOCOMOTIVA_MAIL_FROM = "teste@example.invalid";
+          try {
+            await save("publish");
+            assert.equal((await r.config()).revision, saved.revision + 1);
+            assert.equal((await r.availability()).find(({ date }) => date === additionalDate)?.state, "AVAILABLE");
+            await save("close");
+            assert.equal((await r.config()).published, false);
+            await save("publish");
+            assert.equal((await r.config()).revision, saved.revision + 1);
+          } finally {
+            if (previousSmtp === undefined) delete process.env.LOCOMOTIVA_SMTP_URL;
+            else process.env.LOCOMOTIVA_SMTP_URL = previousSmtp;
+            if (previousFrom === undefined) delete process.env.LOCOMOTIVA_MAIL_FROM;
+            else process.env.LOCOMOTIVA_MAIL_FROM = previousFrom;
+          }
+          const acceptanceAfter = await r.prisma.$queryRaw`SELECT id, data->'acceptance' AS acceptance FROM "LocomotivaRegistration" ORDER BY id`;
+          assert.deepEqual(acceptanceAfter, acceptanceBefore);
+          assert.ok(!(await r.config()).administration);
+          for (const page of ["condicoes.html", "seus-dados.html", "sua-visita.html", "solicitacao-recebida.html"]) {
+            assert.equal((await fetch(`${base}/campanha-locomotiva/${page}`)).status, 200);
+          }
+          flow.mock.method(mail, "drain", async () => {});
+          const visitor = payload({
+            name: "Reserva fictícia Locomotiva",
+            email: "reserva-ficticia@example.invalid",
+            emailConfirmation: "reserva-ficticia@example.invalid",
+            instagram: "usuario_legado_diferente",
+            profileUrl: "https://www.instagram.com/reserva_ficticia_teste/",
+            cpf: "12345678909",
+            date: additionalDate,
+            revision: saved.revision + 1,
+          });
+          const registration = await fetch(`${base}/locomotiva/registrations`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(visitor),
+          });
+          const receipt = await registration.json();
+          assert.equal(registration.status, 201, JSON.stringify(receipt));
+          assert.ok(receipt.protocol);
+          const detail = await fetch(`${base}/admin/locomotiva/registrations/${receipt.protocol}`, {
+            headers: { Authorization: `Bearer ${payloadToken}.${signature}` },
+          });
+          assert.equal(detail.status, 200);
+          const record = await detail.json();
+          assert.equal(record.cpfFull, undefined);
+          await r.prisma.$executeRaw`UPDATE "User" SET role='ADMIN' WHERE id=${manager.id}`;
+          try {
+            const headers = { Authorization: `Bearer ${payloadToken}.${signature}` };
+            const adminDetail = await fetch(`${base}/admin/locomotiva/registrations/${receipt.protocol}`, { headers });
+            assert.equal(adminDetail.status, 200);
+            assert.equal((await adminDetail.json()).cpfFull, visitor.cpf);
+            const adminList = await fetch(`${base}/admin/locomotiva`, { headers });
+            assert.equal(adminList.status, 200);
+            assert.ok((await adminList.json()).registrations.every((item) => item.cpfFull === undefined));
+            const reads = await r.prisma.$queryRaw`SELECT id FROM "LocomotivaAudit" WHERE "registrationId"=${receipt.protocol} AND action='CPF_READ'`;
+            assert.equal(reads.length, 1);
+          } finally {
+            await r.prisma.$executeRaw`UPDATE "User" SET role='MANAGER' WHERE id=${manager.id}`;
+          }
+          assert.equal(record.name, visitor.name);
+          assert.equal(record.instagram, "reserva_ficticia_teste");
+          assert.equal(record.date, additionalDate);
+          assert.equal(record.status, "PENDING");
+          assert.equal(record.acceptance.revision, visitor.revision);
+          assert.ok(record.emails.some(({ kind, state }) => kind === "RECEIVED" && state === "PENDING"));
+          flow.diagnostic(`Reserva fictícia ${receipt.protocol}, ${visitor.date} às ${visitor.time}, em análise.`);
+          const localDate = "2027-02-02";
+          await save("publish-local", { dates: [localDate] }, 403);
+          await save("save", { config: { ...v.DEFAULT_CONFIG, dates: [localDate], lunch: [], dinner: [] } });
+          const localFlag = process.env.LOCOMOTIVA_LOCAL_TEST;
+          process.env.LOCOMOTIVA_LOCAL_TEST = "true";
+          try {
+            await save("publish-local", { dates: [localDate] });
+            const testConfig = await r.config();
+            assert.equal(testConfig.localTest, true);
+            assert.deepEqual(testConfig.lunch, ["11:30"]);
+            const localReceipt = await r.submit(payload({
+              cpf: "98765432100", email: "reserva-local@example.invalid",
+              emailConfirmation: "reserva-local@example.invalid", instagram: "reserva_local_teste",
+              profileUrl: "https://www.instagram.com/reserva_local_teste/",
+              revision: testConfig.revision, date: localDate,
+            }));
+            assert.equal(localReceipt.localTest, true);
+            const mailRows = await r.prisma.$queryRaw`SELECT id FROM "LocomotivaMail" WHERE "registrationId" = ${localReceipt.protocol}`;
+            assert.deepEqual(mailRows, []);
+          } finally {
+            if (localFlag === undefined) delete process.env.LOCOMOTIVA_LOCAL_TEST;
+            else process.env.LOCOMOTIVA_LOCAL_TEST = localFlag;
+          }
+          assert.equal((await r.config()).published, false);
+        });
       },
     );
   });
