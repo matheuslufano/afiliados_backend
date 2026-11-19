@@ -6,6 +6,7 @@ const { attachPrismaStudioUpgrade } = require('./routes/prismaStudioRoute');
 
 const PORT = process.env.PORT || 3000;
 require('./services/blogAnalyticsCollection').startAnalyticsRetention();
+require('./services/locomotivaMail').start();
 
 const server = app.listen(PORT, () => {
   console.log(

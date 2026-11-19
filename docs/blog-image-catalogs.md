@@ -40,3 +40,17 @@ A importação consulta novamente a obra, confirma o identificador da imagem e b
 `node --test test/blogImageCatalog.test.js test/blogTmdb.test.js test/blogManagement.test.js` cobre configuração ausente, normalização, paginação, OAuth em cache, hosts/identidade de imagens, tamanho/MIME, autenticação, persistência/entrega com banco simulado e regressão TMDB. O teste PostgreSQL exige `BLOG_TEST_DATABASE=1` em banco isolado. Sem credenciais reais, chamadas remotas permanecem não verificadas.
 
 Referências técnicas: https://github.com/Metron-Project/metron/blob/master/api/README.md e https://api-docs.igdb.com/.
+
+## Imagens livres por tema (Wikimedia Commons)
+
+Além dos catálogos de obras, `GET /admin/blog/free-media/search?q=tema&mode=landscape&offset=0` consulta o Commons. `mode`: `portrait`, `landscape` ou `gif`; termo de até 120 caracteres; offset entre 0 e 10000. Retorna `{ results, nextOffset, warning? }`. Lotes de fotos têm até 20 candidatos; GIFs até 6, com duas verificações concorrentes. O filtro pode produzir um lote vazio mesmo quando há próxima página.
+
+Somente metadados explicitamente marcados `CC0` ou `Public domain`, sem restrições adicionais declaradas, são aceitos. Fotos respeitam orientação estrita (quadradas não pertencem a vertical/horizontal). Resultados incluem autor, origem e licença. A interface não promete ausência universal de direitos: direitos de imagem e marcas ainda devem ser conferidos na fonte.
+
+`POST /admin/blog/free-media/import` recebe `{ id, mode }`; não aceita URLs arbitrárias. Consulta novamente a licença e os metadados antes do download, limita o arquivo a 8 MB, verifica MIME e assinatura e persiste em `BlogMediaAsset` pelo fluxo existente. `source` registra o link do Commons. Responde `{ url, alt }`. Não salva/publica artigos automaticamente e não altera o schema. Ambas as rotas exigem usuário ativo autenticado, como os catálogos existentes.
+
+Originais são baixados somente de `https://upload.wikimedia.org/wikipedia/commons/`; prévias também aceitam `thumb.wikimedia.org`. Redirecionamentos são bloqueados. Chamadas usam identificação do aplicativo e timeout; indisponibilidade/rate limit geram erro controlado. Nenhuma chave nova é necessária; `BLOG_MEDIA_PUBLIC_URL` continua obrigatória em produção.
+
+`blogGifTransparency.js` percorre a estrutura dos GIFs sem procurar padrões dentro dos dados comprimidos: exige mais de um quadro e flag de transparência em todos. Isso verifica a declaração de transparência do formato; não segmenta o objeto nem garante que todo o fundo seja transparente. GIFs incompatíveis são filtrados na busca e rejeitados na importação. Os bytes originais são preservados. Falhas de download durante a verificação são indicadas em `warning`.
+
+Validação: `node --test test/blogFreeMedia.test.js test/blogImageCatalog.test.js test/blogTmdb.test.js`. Testes isolados substituem rede e persistência; não gravam no banco real. Fontes: [Imageinfo](https://www.mediawiki.org/wiki/API:Imageinfo), [busca Commons](https://commons.wikimedia.org/wiki/Help:Search).

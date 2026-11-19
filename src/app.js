@@ -50,6 +50,7 @@ app.use(contactRoutes);
 app.use(maintenanceRoutes);
 app.use(clickRoutes);
 app.use(blogRoutes);
+app.use(require('./routes/locomotivaRoutes'));
 app.use(require('./routes/siteThemeRoutes'));
 app.use(require('./routes/blogMediaRoutes'));
 app.use(require('./routes/blogAdminRoutes'));

@@ -7,6 +7,60 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Partial unique indexes and CHECK constraints are maintained in the SQL migration.
+model LocomotivaConfig {
+  id   Int @id @default(1)
+  data Json
+}
+
+model LocomotivaRegistration {
+  id          String @id
+  requestKey  String @unique
+  requestHash String
+  date        String
+  status      String
+  cpfHash     String
+  instagram   String
+  email       String
+  data        Json
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  emails      LocomotivaMail[]
+}
+
+model LocomotivaInvite {
+  id        String @id
+  tokenHash String @unique
+  data      Json
+}
+
+model LocomotivaMail {
+  id             String @id
+  registrationId String
+  registration   LocomotivaRegistration @relation(fields: [registrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kind           String
+  payload        Json
+  state          String @default("PENDING")
+  attempts       Int @default(0)
+  lastError      String?
+  sentAt         DateTime? @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model LocomotivaAudit {
+  id             String @id
+  registrationId String?
+  actor          String
+  action         String
+  reason         String
+  at             DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model LocomotivaRate {
+  key       String @id
+  count     Int @default(1)
+  expiresAt DateTime @db.Timestamptz(6)
+}
+
 model User {
   id        Int      @id @default(autoincrement())
   name      String

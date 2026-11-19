@@ -5,11 +5,16 @@ const router = express.Router();
 const prisma = require('../database/prisma');
 const tmdb = require('../services/blogTmdb');
 const catalog = require('../services/blogImageCatalog');
+const freeMedia = require('../services/blogFreeMedia');
 const wrap = handler => async (req, res) => {
   try { await handler(req, res); }
   catch (error) { res.status(error.status || 503).json({ error: error.status ? error.message : 'Não foi possível consultar ou salvar a imagem. Tente novamente.' }); }
 };
 router.get('/admin/blog/tmdb/search', requireAuth, wrap(async (req, res) => res.json(await tmdb.search(req.query.q, req.query.page))));
+router.get('/admin/blog/free-media/search', requireAuth, wrap(async (req, res) => res.json(await freeMedia.search(req.query.q, req.query.mode, req.query.offset))));
+router.post('/admin/blog/free-media/import', requireAuth, wrap(async (req, res) => {
+  await importImage(req, res, () => freeMedia.download(req.body?.id, req.body?.mode));
+}));
 router.get('/admin/blog/tmdb/:kind/:id/images', requireAuth, wrap(async (req, res) => res.json(await tmdb.images(req.params.kind, req.params.id))));
 async function importImage(req, res, download) {
   const base = process.env.BLOG_MEDIA_PUBLIC_URL || (process.env.NODE_ENV !== 'production' ? `http://localhost:${req.socket.localPort}` : '');
