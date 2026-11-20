@@ -9,7 +9,7 @@ const DEFAULT_CONFIG = {
   dates: DATES,
   lunch: [],
   dinner: [],
-  minimumHours: 24,
+  dailyCapacity: 1,
   address: "",
   contact: "",
   voucher: "",
@@ -91,7 +91,7 @@ function localTestConfiguration(previous, dates) {
   const notice = "Simulação local da Locomotiva. Use somente dados fictícios. Esta solicitação não é uma reserva real.";
   const times = draft.lunch.length || draft.dinner.length ? draft.lunch : ["11:30"];
   return {
-    ...draft, lunch: times, minimumHours: 0, published: true, localTest: true,
+    ...draft, lunch: times, published: true, localTest: true,
     conditions: notice, imageTerm: notice, privacy: notice,
   };
 }
@@ -142,11 +142,8 @@ function visit(body, config, now = Date.now()) {
     !config[body.period].includes(body.time)
   )
     fail("Escolha uma data e um horário disponíveis.");
-  if (
-    new Date(`${body.date}T${body.time}:00-03:00`).getTime() <
-    now + config.minimumHours * 3600000
-  )
-    fail("O prazo para solicitar este horário terminou.");
+  if (new Date(`${body.date}T${body.time}:00-03:00`).getTime() < now)
+    fail("Escolha um horário futuro.");
   if (!["STORIES", "REELS"].includes(body.modality))
     fail("Escolha a modalidade de conteúdo.");
 }
@@ -170,6 +167,17 @@ const mandatory = [
   "imageEditing",
   "imagePromotion",
 ];
+const optionalForActivation = new Set([
+  "conditions",
+  "imageTerm",
+  "privacy",
+  "approvedBy",
+  "imageChannels",
+  "imagePurpose",
+  "imageDuration",
+  "imageEditing",
+  "imagePromotion",
+]);
 function missing(config) {
   return mandatory
     .filter((k) => {
@@ -179,6 +187,9 @@ function missing(config) {
     })
     .concat(config.lunch.length + config.dinner.length ? [] : ["arrivalTimes"])
     .concat(config.dates.length ? [] : ["dates"]);
+}
+function missingActivationRequirements(config) {
+  return missing(config).filter((field) => !optionalForActivation.has(field));
 }
 function mailTemplate(event, subject, body) {
   if (!Object.hasOwn(mailDefaults, event)) fail("Selecione um modelo de e-mail válido.");
@@ -235,20 +246,23 @@ function configuration(body, { allowEmptyDates = false } = {}) {
         "Horários de chegada devem ser anteriores ao encerramento do período.",
       );
   }
-  c.minimumHours = Number(body.minimumHours);
+  c.dailyCapacity = body.dailyCapacity === undefined
+    ? DEFAULT_CONFIG.dailyCapacity
+    : Number(body.dailyCapacity);
   if (
-    !Number.isFinite(c.minimumHours) ||
-    c.minimumHours < 0 ||
-    c.minimumHours > 720
+    !Number.isInteger(c.dailyCapacity) ||
+    c.dailyCapacity < 1 ||
+    c.dailyCapacity > 100
   )
-    fail("Antecedência inválida.");
+    fail("A capacidade diária deve ser um número inteiro entre 1 e 100.");
   c.published = body.published === true;
-  if (c.published && missing(c).length)
-    fail(`Resolva as configurações pendentes: ${missing(c).join(", ")}.`);
+  const activationMissing = missingActivationRequirements(c);
+  if (c.published && activationMissing.length)
+    fail(`Resolva as configurações pendentes: ${activationMissing.join(", ")}.`);
   if (c.published) {
     if (!c.dates.some((date) => [...c.lunch, ...c.dinner].some((time) =>
-      Date.parse(`${date}T${time}:00-03:00`) >= Date.now() + c.minimumHours * 3600000)))
-      fail("Selecione pelo menos uma data futura que respeite a antecedência mínima.");
+      Date.parse(`${date}T${time}:00-03:00`) >= Date.now())))
+      fail("Selecione pelo menos uma data com horário futuro.");
     key();
     if (!process.env.LOCOMOTIVA_SMTP_URL || !process.env.LOCOMOTIVA_MAIL_FROM)
       fail("Configure o serviço de e-mail antes da publicação.");

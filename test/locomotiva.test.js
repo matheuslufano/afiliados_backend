@@ -23,7 +23,7 @@ test("CPF, encryption and profile normalization reject invalid and internal URLs
     assert.throws(() => v.instagram(url));
   assert.throws(() => v.photo("data:image/svg+xml;base64,AAAA"));
 });
-test("configuration requires approved documents and disallows arrivals at closing", () => {
+test("configuration rejects incomplete publication and arrivals at closing", () => {
   assert.throws(() =>
     v.configuration({ ...v.DEFAULT_CONFIG, lunch: ["15:00"] }),
   );
@@ -36,6 +36,48 @@ test("configuration requires approved documents and disallows arrivals at closin
   assert.equal(v.DATES.length, 10);
   assert.deepEqual(v.configuration({ ...v.DEFAULT_CONFIG, dates: ["2027-02-01", "2026-12-05", "2027-02-01"] }).dates, ["2026-12-05", "2027-02-01"]);
   assert.throws(() => v.configuration({ ...v.DEFAULT_CONFIG, dates: ["2027-02-29"] }));
+});
+
+test("campaign can be published without document text or approvals", () => {
+  const previousSmtp = process.env.LOCOMOTIVA_SMTP_URL;
+  const previousFrom = process.env.LOCOMOTIVA_MAIL_FROM;
+  process.env.LOCOMOTIVA_SMTP_URL = "smtp://example.invalid";
+  process.env.LOCOMOTIVA_MAIL_FROM = "teste@example.invalid";
+  try {
+    const config = v.configuration({
+      ...v.DEFAULT_CONFIG,
+      published: true,
+      dates: ["2099-01-01"],
+      lunch: ["11:30"],
+      address: "Rua de teste, 100",
+      contact: "Telefone: 63999999999",
+      voucher: "Voucher de teste",
+      companions: "Acompanhantes de teste",
+      excess: "Excedente de teste",
+      balance: "Saldo de teste",
+      cancellation: "Cancelamento de teste",
+      publication: "Publicação de teste",
+      tags: "@netbox",
+    });
+    assert.equal(config.published, true);
+    for (const field of [
+      "conditions",
+      "imageTerm",
+      "privacy",
+      "approvedBy",
+      "imageChannels",
+      "imagePurpose",
+      "imageDuration",
+      "imageEditing",
+      "imagePromotion",
+    ])
+      assert.equal(config[field], "");
+  } finally {
+    if (previousSmtp === undefined) delete process.env.LOCOMOTIVA_SMTP_URL;
+    else process.env.LOCOMOTIVA_SMTP_URL = previousSmtp;
+    if (previousFrom === undefined) delete process.env.LOCOMOTIVA_MAIL_FROM;
+    else process.env.LOCOMOTIVA_MAIL_FROM = previousFrom;
+  }
 });
 
 test("reservation settings retain the voucher value and supported message templates", () => {
@@ -112,11 +154,14 @@ if (integration) {
     await r.prisma.$executeRawUnsafe(fs.readFileSync(path.join(
       __dirname, "../prisma/migrations/20261119160000_locomotiva_repeat_participation/migration.sql",
     ), "utf8"));
+    await r.prisma.$executeRawUnsafe(fs.readFileSync(path.join(
+      __dirname, "../prisma/migrations/20261119170000_locomotiva_daily_capacity/migration.sql",
+    ), "utf8"));
     const config = {
       ...v.DEFAULT_CONFIG,
       published: true,
       revision: 1,
-      minimumHours: 0,
+      dailyCapacity: 1,
       lunch: ["11:30"],
       dinner: ["19:00"],
     };
@@ -231,11 +276,11 @@ if (integration) {
       },
     );
     await t.test(
-      "database unique partial index rejects direct conflicting writers",
+      "daily capacity rejects another active request for a full date",
       async () => {
         await assert.rejects(
-          r.prisma
-            .$executeRaw`INSERT INTO "LocomotivaRegistration" (id,"requestKey","requestHash",date,status,"cpfHash",instagram,email,data) VALUES (${crypto.randomUUID()},${crypto.randomUUID()},'x','2026-11-21','PENDING','different','different','different','{}'::jsonb)`,
+          r.submit({ ...second, requestKey: crypto.randomUUID() }),
+          (error) => error.status === 409,
         );
       },
     );
@@ -395,7 +440,7 @@ if (integration) {
           assert.fail("MANAGER cannot read CPF"),
         );
         assert.equal(status, 403);
-        await httpTest.test("draft, approvals, publication and closure preserve accepted terms", async (flow) => {
+        await httpTest.test("draft publication without documents and closure preserve accepted terms", async (flow) => {
           await r.prisma.$executeRaw`CREATE TABLE IF NOT EXISTS "User" (
             id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, password TEXT NOT NULL,
             "photoUrl" TEXT, role TEXT NOT NULL, active BOOLEAN NOT NULL, "teamId" INTEGER
@@ -436,13 +481,23 @@ if (integration) {
           await save("save", { config: { ...saved, address: "Novo endereço de teste", dates: [...saved.dates, additionalDate] } });
           await save("block-days", { dates: [additionalDate], reason: "Ajuste de agenda" });
           assert.equal((await r.settingsState()).administration.draft.dates.includes(additionalDate), false);
-          await save("save", { config: { ...saved, address: "Novo endereço de teste", dates: [...saved.dates, additionalDate], messageSubjectRECEIVED: "Teste {{nome}}" } });
-          await save("approve", { document: "conditions" }, 400);
-          await save("review", { document: "conditions" });
-          for (const document of ["imageTerm", "privacy"]) {
-            await save("review", { document });
-            await save("approve", { document });
-          }
+          await save("save", {
+            config: {
+              ...saved,
+              address: "Novo endereço de teste",
+              dates: [...saved.dates, additionalDate],
+              messageSubjectRECEIVED: "Teste {{nome}}",
+              conditions: "",
+              imageTerm: "",
+              privacy: "",
+              approvedBy: "",
+              imageChannels: "",
+              imagePurpose: "",
+              imageDuration: "",
+              imageEditing: "",
+              imagePromotion: "",
+            },
+          });
           const previousSmtp = process.env.LOCOMOTIVA_SMTP_URL;
           const previousFrom = process.env.LOCOMOTIVA_MAIL_FROM;
           process.env.LOCOMOTIVA_SMTP_URL = "smtp://example.invalid";
@@ -558,6 +613,11 @@ if (integration) {
             assert.equal((await fetch(deletionUrl, { headers })).status, 404);
             const messages = await r.prisma.$queryRaw`SELECT id FROM "LocomotivaMail" WHERE "registrationId"=${receipt.protocol}`;
             assert.deepEqual(messages, []);
+            assert.equal(
+              (await r.availability()).find(({ date }) => date === receipt.date)?.state,
+              "AVAILABLE",
+              "excluir a reserva deve liberar imediatamente a data",
+            );
             const audit = await r.prisma.$queryRaw`SELECT id FROM "LocomotivaAudit" WHERE "registrationId"=${receipt.protocol} AND action='REGISTRATION_DELETED'`;
             assert.equal(audit.length, 1);
           } finally {

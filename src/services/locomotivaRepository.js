@@ -3,8 +3,31 @@ const prisma = require("../database/prisma");
 const v = require("./locomotivaValidation");
 const { defaults: mailDefaults } = require("./locomotivaMailTemplates");
 const id = () => crypto.randomUUID();
-// One campaign-wide transaction lock serializes configuration and reservation decisions.
-// Partial unique database indexes remain the final protection against concurrent writers.
+function normalizeConfig(config = {}) {
+  const normalized = { ...v.DEFAULT_CONFIG, ...config };
+  const capacity = Number(config.dailyCapacity);
+  normalized.dailyCapacity = Number.isInteger(capacity) && capacity >= 1 && capacity <= 100
+    ? capacity
+    : v.DEFAULT_CONFIG.dailyCapacity;
+  delete normalized.minimumHours;
+  return normalized;
+}
+function normalizeState(state = v.DEFAULT_CONFIG) {
+  const normalized = normalizeConfig(state);
+  const administration = state.administration;
+  if (administration) {
+    normalized.administration = {
+      ...administration,
+      draft: administration.draft ? normalizeConfig(administration.draft) : undefined,
+      history: (administration.history || []).map((entry) =>
+        entry.config ? { ...entry, config: normalizeConfig(entry.config) } : entry,
+      ),
+    };
+  }
+  return normalized;
+}
+// The campaign lock serializes configuration and capacity checks across all reservation writers.
+// Partial unique database indexes separately protect participant identities.
 async function transaction(fn) {
   return prisma.$transaction(
     async (tx) => {
@@ -17,7 +40,7 @@ async function transaction(fn) {
 async function settingsState(tx = prisma) {
   const rows =
     await tx.$queryRaw`SELECT data FROM "LocomotivaConfig" WHERE id = 1`;
-  return rows[0]?.data || structuredClone(v.DEFAULT_CONFIG);
+  return normalizeState(rows[0]?.data || structuredClone(v.DEFAULT_CONFIG));
 }
 async function config(tx = prisma) {
   const { administration, ...published } = await settingsState(tx);
@@ -32,24 +55,26 @@ async function availability(tx = prisma) {
     rows =
       await tx.$queryRaw`SELECT date,status FROM "LocomotivaRegistration" WHERE status IN ('PENDING','CONFIRMED','ATTENDED','ABSENT')`;
   return [...new Set([...c.dates, ...rows.map((row) => row.date)])].sort().map((date) => {
-    const row = rows.find((r) => r.date === date);
+    const dateRows = rows.filter((row) => row.date === date);
+    const bookedCount = dateRows.length;
     const times = Object.fromEntries(
       ["lunch", "dinner"].map((p) => [
         p,
         c[p].filter(
-          (t) =>
-            new Date(`${date}T${t}:00-03:00`).getTime() >=
-            Date.now() + c.minimumHours * 3600000,
+          (t) => new Date(`${date}T${t}:00-03:00`).getTime() >= Date.now(),
         ),
       ]),
     );
     return {
       date,
-      state:
-        row?.status ||
-        (c.dates.includes(date) && (times.lunch.length || times.dinner.length)
-          ? "AVAILABLE"
-          : "CLOSED"),
+      state: c.dates.includes(date) && bookedCount < c.dailyCapacity &&
+        (times.lunch.length || times.dinner.length)
+        ? "AVAILABLE"
+        : bookedCount >= c.dailyCapacity
+          ? dateRows.at(-1)?.status || "FULL"
+          : "CLOSED",
+      bookedCount,
+      dailyCapacity: c.dailyCapacity,
       times,
     };
   });
@@ -98,9 +123,9 @@ async function submit(body) {
     const person = v.participant(body);
     const occupied =
       await tx.$queryRaw`SELECT id FROM "LocomotivaRegistration" WHERE status IN ('PENDING','CONFIRMED','ATTENDED','ABSENT') AND date = ${body.date}`;
-    if (occupied.length)
+    if (occupied.length >= c.dailyCapacity)
       v.fail(
-        "A data escolhida já está ocupada. Selecione outra data disponível.",
+        "A capacidade desta data está preenchida. Selecione outra data disponível.",
         409,
       );
     let inviteId = null;
@@ -202,8 +227,8 @@ async function update(registrationId, body, actor) {
     if (r.status === "PENDING" && status === "CONFIRMED" && !changedVisit) {
       if (!c.dates.includes(r.date) || !c[r.data.period]?.includes(r.data.time))
         v.fail("A data ou o horário solicitado não está mais disponível. Reagende a visita.", 409);
-      const occupied = await tx.$queryRaw`SELECT id FROM "LocomotivaRegistration" WHERE date = ${r.date} AND id <> ${r.id} AND status IN ('CONFIRMED','ATTENDED','ABSENT')`;
-      if (occupied.length) v.fail("A data escolhida já está ocupada.", 409);
+      const occupied = await tx.$queryRaw`SELECT id FROM "LocomotivaRegistration" WHERE date = ${r.date} AND id <> ${r.id} AND status IN ('PENDING','CONFIRMED','ATTENDED','ABSENT')`;
+      if (occupied.length >= c.dailyCapacity) v.fail("A capacidade desta data está preenchida.", 409);
     }
     const data = {
       ...r.data,
@@ -218,7 +243,7 @@ async function update(registrationId, body, actor) {
       v.visit({ ...body, modality: data.modality }, c);
       const conflicts =
         await tx.$queryRaw`SELECT id FROM "LocomotivaRegistration" WHERE date = ${body.date} AND id <> ${r.id} AND status IN ('PENDING','CONFIRMED','ATTENDED','ABSENT')`;
-      if (conflicts.length) v.fail("Esta data já está ocupada.", 409);
+      if (conflicts.length >= c.dailyCapacity) v.fail("A capacidade desta data está preenchida.", 409);
       data.date = body.date;
       data.time = body.time;
       data.period = body.period;

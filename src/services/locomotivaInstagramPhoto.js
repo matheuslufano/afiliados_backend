@@ -36,6 +36,30 @@ async function readLimited(response, limit) {
   return Buffer.concat(chunks);
 }
 
+async function readProfileHead(response) {
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (size < MAX_PROFILE_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      size += value.byteLength;
+      const html = Buffer.concat(chunks).toString("utf8");
+      const headEnd = html.search(/<\/head\s*>/i);
+      if (headEnd >= 0) {
+        await reader.cancel();
+        return html.slice(0, headEnd);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return null;
+}
+
 async function downloadPhoto(value) {
   const url = new URL(value);
   // Accept only Meta's image CDN. Reject redirects and bound the download.
@@ -62,17 +86,26 @@ async function lookupPublicProfile(handle) {
     await response.body?.cancel();
     return null;
   }
-  const html = (await readLimited(response, MAX_PROFILE_BYTES))?.toString("utf8");
+  const html = await readProfileHead(response);
   if (!html) return null;
   const metadata = new Map();
-  for (const tag of html.split(/<\/head\s*>/i, 1)[0].matchAll(/<meta\b[^>]*>/gi)) {
+  for (const tag of html.matchAll(/<meta\b[^>]*>/gi)) {
     const attrs = new Map([...tag[0].matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)]
       .map(([, name, doubleQuoted, singleQuoted]) => [name.toLowerCase(), doubleQuoted ?? singleQuoted]));
     const property = attrs.get("property")?.toLowerCase();
     if (property?.startsWith("og:") && !metadata.has(property)) metadata.set(property, attrs.get("content"));
   }
   const canonicalUrl = metadata.get("og:url");
-  if (metadata.get("og:type") !== "profile" || canonicalUrl?.replace(/\/$/, "").toLowerCase() !== profileUrl.slice(0, -1)) return null;
+  let canonicalHandle = "";
+  try {
+    const canonical = new URL(canonicalUrl);
+    if (canonical.protocol === "https:" && ["instagram.com", "www.instagram.com"].includes(canonical.hostname))
+      canonicalHandle = canonical.pathname.replace(/^\//, "").replace(/\/$/, "").toLowerCase();
+  } catch { /* Instagram sometimes omits the canonical URL from its profile metadata. */ }
+  if (
+    (canonicalUrl && canonicalHandle !== handle) ||
+    (!canonicalUrl && metadata.get("og:type") !== "profile")
+  ) return null;
   const image = metadata.get("og:image");
   return image ? downloadPhoto(image.replace(/&(?:amp|#0*38|#x0*26);/gi, "&")) : null;
 }

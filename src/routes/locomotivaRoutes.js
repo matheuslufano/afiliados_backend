@@ -70,6 +70,48 @@ router.get(
     });
   }),
 );
+router.get(
+  "/locomotiva/preview-config",
+  wrap(async (req, res) => {
+    const localAddresses = ["127.0.0.1", "::1", "::ffff:127.0.0.1"];
+    if (
+      !["development", undefined].includes(process.env.NODE_ENV) ||
+      !localAddresses.includes(req.socket.remoteAddress)
+    )
+      return res.status(404).json({ error: "Not found." });
+
+    const state = await r.settingsState();
+    const { administration, ...published } = state;
+    const config = administration?.draft || published;
+    const existingAvailability = await r.availability();
+    const bookedByDate = new Map(existingAvailability.map((day) => [day.date, day.bookedCount]));
+    const now = Date.now();
+    const dailyCapacity = config.dailyCapacity || 1;
+    const availability = config.dates.map((date) => {
+      const times = Object.fromEntries(
+        ["lunch", "dinner"].map((period) => [
+          period,
+          (config[period] || []).filter((time) =>
+            Date.parse(`${date}T${time}:00-03:00`) >= now,
+          ),
+        ]),
+      );
+      const bookedCount = bookedByDate.get(date) || 0;
+      return {
+        date,
+        state: bookedCount >= dailyCapacity
+          ? "FULL"
+          : times.lunch.length || times.dinner.length
+            ? "AVAILABLE"
+            : "CLOSED",
+        bookedCount,
+        dailyCapacity,
+        times,
+      };
+    });
+    res.json({ config: publicCampaign(config), availability });
+  }),
+);
 router.post(
   "/locomotiva/registrations",
   wrap(async (req, res) => {
@@ -196,8 +238,6 @@ router.put(
         published = { ...next, revision: live.revision + 1 };
         editor.history.push({ config: published, at: updatedAt });
       } else if (operation === "publish") {
-        if (["imageTerm", "privacy"].some((key) => editor.reviews[key]?.status !== "approved"))
-          v.fail("Aprove o termo de uso de imagem e o aviso de privacidade antes de publicar.");
         const next = v.configuration({ ...previous, published: true });
         if (editor.blockedDates.length) {
           const occupied = await tx.$queryRaw`SELECT date FROM "LocomotivaRegistration" WHERE status IN ('PENDING','CONFIRMED','ATTENDED','ABSENT')`;
